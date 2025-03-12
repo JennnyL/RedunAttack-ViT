@@ -1,5 +1,12 @@
 <h1 align="center">TransferAttack</h1>
 
+## Fast try
+For attack     
+python main.py --input_dir /home/cxu-serve/p62/zzh136/global_prune/attack/data/TransferAttack/data  --output_dir adv_data --attack sparse --model vit_base_patch16_224 
+
+For eval   
+python main.py --input_dir /home/cxu-serve/p62/zzh136/global_prune/attack/data/TransferAttack/data  --output_dir adv_data --attack sparse --model vit_base_patch16_224  --eval
+
 ## About
 <p align="center">
   <a href="https://github.com/Trustworthy-AI-Group/TransferAttack/stargazers"> <img src="https://img.shields.io/github/stars/Trustworthy-AI-Group/TransferAttack.svg?style=popout-square" alt="GitHub stars"></a>
