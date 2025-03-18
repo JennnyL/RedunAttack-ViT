@@ -38,7 +38,7 @@ def main():
     if not args.eval:
         if args.ensemble or len(args.model.split(',')) > 1:
             args.model = args.model.split(',')
-        attacker = transferattack.load_attack_class(args.attack)(model_name=args.model, targeted=args.targeted)
+        attacker = transferattack.load_attack_class(args.attack)(model_name=args.model, targeted=args.targeted, epoch=args.epoch)
 
         for batch_idx, [images, labels, filenames] in tqdm.tqdm(enumerate(dataloader)):
             if args.attack in ['ttp', 'm3d']: 
