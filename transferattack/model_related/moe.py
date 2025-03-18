@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import Tensor
 
-from timm.models.vision_transformer import Attention,Mlp
+from timm.models.vision_transformer import Attention,Mlp, Block
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -86,8 +86,8 @@ class MoEAttack(Attack):
         for name, module in self.model.named_modules():
             if isinstance(module, Attention):
                 module.forward = Wrapped_Attention_forward.__get__(module)
-            if isinstance(module, Mlp):
-                module.forward = Wrapper_FFN_forward.__get__(module)
+            if isinstance(module, Block):
+                module.mlp.forward = Wrapper_FFN_forward.__get__(module)
         
 
 
