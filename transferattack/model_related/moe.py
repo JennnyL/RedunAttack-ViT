@@ -55,7 +55,7 @@ def Wrapper_FFN_forward(self, x):
     for n in range(N):
         x = self.fc1(x)
         x = self.act(x)
-        x = x * (torch.randn_like(x)>0.1).float()
+        x = x * (torch.rand_like(x)>0.1).float()
         # x = self.drop1(x)
         x = self.fc2(x)
         # x = self.drop2(x)
