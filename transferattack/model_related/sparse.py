@@ -40,7 +40,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = self.attn_drop(attn)
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
-    attn = attn * (torch.rand_like(attn.shape) > 0.5).float()
+    attn = attn * (torch.rand_like(attn) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
