@@ -86,8 +86,8 @@ class MoEAttack(Attack):
         for name, module in self.model.named_modules():
             if isinstance(module, Attention):
                 module.forward = Wrapped_Attention_forward.__get__(module)
-            if isinstance(module, Block):
-                module.mlp.forward = Wrapper_FFN_forward.__get__(module)
+            if isinstance(module, Mlp):
+                module.forward = Wrapper_FFN_forward.__get__(module)
         
 
 
