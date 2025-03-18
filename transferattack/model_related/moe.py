@@ -49,13 +49,13 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
  
 N = 2    
     
-def Wrapper_FFN_forward(self, x):
+def Wrapper_FFN_forward(self, input):
     output = 0.
     global N
     for n in range(N):
-        x = self.fc1(x)
+        x = self.fc1(input)
         x = self.act(x)
-        x = x * (torch.rand_like(x)>0.1).float()
+        x = x * (torch.rand_like(x)>0.3).float()
         # x = self.drop1(x)
         x = self.fc2(x)
         # x = self.drop2(x)
