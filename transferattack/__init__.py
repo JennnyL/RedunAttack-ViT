@@ -101,6 +101,7 @@ attack_zoo = {
     'vdc': ('.model_related.vdc', 'VDC'),
     'ma': ('.model_related.ma', 'MA'),
     'sparse': ('.model_related.sparse', 'SparseAttack'),
+    'h2o': ('.model_related.h2o', 'H2OAttack'),
     
     # ensemble
     'ens': ('.ensemble.ens', 'ENS'),
