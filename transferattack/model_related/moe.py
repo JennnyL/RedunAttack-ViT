@@ -47,7 +47,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     x = self.proj_drop(x)
     return x
  
-N = 3    
+N = 2    
     
 def Wrapper_FFN_forward(self, x):
     output = 0.
@@ -55,7 +55,7 @@ def Wrapper_FFN_forward(self, x):
     for n in range(N):
         x = self.fc1(x)
         x = self.act(x)
-        x = x * (torch.randn_like(x)>0.5).float()
+        x = x * (torch.randn_like(x)>0.1).float()
         # x = self.drop1(x)
         x = self.fc2(x)
         # x = self.drop2(x)
