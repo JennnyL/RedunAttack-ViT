@@ -39,8 +39,8 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = attn.softmax(dim=-1)
     attn = self.attn_drop(attn)
     # import pdb;pdb.set_trace()
-    global attn_weights
-    attn_weights.append(attn)
+    # random drop 50% of the attention weights
+    attn = attn * (torch.rand(attn.shape) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
@@ -132,11 +132,11 @@ class SparseAttack(Attack):
             # Calculate the loss
             
             # global attn_weights
-            attn_weights_adv = attn_weights
-            attn_weights = []
+            # attn_weights_adv = attn_weights
+            # attn_weights = []
             
             # import pdb;pdb.set_trace()
-            loss = self.get_loss(logits, label, attn_weights_benign, attn_weights_adv)
+            loss = self.get_loss(logits, label, attn_weights_benign)
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
             # Calculate the momentum
