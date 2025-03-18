@@ -40,7 +40,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = self.attn_drop(attn)
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
-    attn = attn * (torch.rand(attn.shape) > 0.5).float()
+    attn = attn * (torch.rand_like(attn.shape) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
@@ -62,33 +62,7 @@ class SparseAttack(Attack):
         self.wrap_attention()
     
     
-    def transform(self, x, **kwargs):
-        """
-        Random transform the input images
-        """
-        # do not transform the input image
-        if torch.rand(1) > self.diversity_prob:
-            return x
-        
-        img_size = x.shape[-1]
-        img_resize = int(img_size * self.resize_rate)
-
-        # resize the input image to random size
-        rnd = torch.randint(low=min(img_size, img_resize), high=max(img_size, img_resize), size=(1,), dtype=torch.int32)
-        rescaled = F.interpolate(x, size=[rnd, rnd], mode='bilinear', align_corners=False)
-
-        # randomly add padding
-        h_rem = img_resize - rnd
-        w_rem = img_resize - rnd
-        pad_top = torch.randint(low=0, high=h_rem.item(), size=(1,), dtype=torch.int32)
-        pad_bottom = h_rem - pad_top
-        pad_left = torch.randint(low=0, high=w_rem.item(), size=(1,), dtype=torch.int32)
-        pad_right = w_rem - pad_left
-
-        padded = F.pad(rescaled, [pad_left.item(), pad_right.item(), pad_top.item(), pad_bottom.item()], value=0)
-
-        # resize the image back to img_size
-        return F.interpolate(padded, size=[img_size, img_size], mode='bilinear', align_corners=False)
+    
     
     
     
