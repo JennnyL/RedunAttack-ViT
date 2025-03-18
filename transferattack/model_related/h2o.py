@@ -43,17 +43,13 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     # attn = attn * (torch.rand_like(attn) > 0.5).float()
     
     # budget = int(attn.shape[1] * 0.5)
+    import pdb;pdb.set_trace()
     heavy_budget = int(attn_weights.shape[1] * 0.5)
-    recent_budget = 1
     tmp_sum = torch.sum(tmp_attn, dim=-2) 
     _, tmp_topk = tmp_sum.topk(k=heavy_budget, dim=-1)
     zeros = torch.zeros_like(tmp_sum, dtype=torch.bool)
     mask_bottom = zeros.scatter(-1, tmp_topk, True).unsqueeze(2)
     mask_bottom = mask_bottom.expand(mask_bottom.shape[0], mask_bottom.shape[1], attn_weights.shape[-2], mask_bottom.shape[-1])
-    ones = torch.ones_like(attn_weights, dtype=torch.bool)
-    ones = torch.tril(ones, diagonal=recent_budget)
-    ones = torch.triu(ones, diagonal=-recent_budget)
-    mask_bottom = torch.logical_or(mask_bottom, ones)
     # mask_bottom = ones
     attn_weights[~mask_bottom] = torch.finfo(attn_weights.dtype).min
     
