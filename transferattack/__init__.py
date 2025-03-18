@@ -102,6 +102,7 @@ attack_zoo = {
     'ma': ('.model_related.ma', 'MA'),
     'sparse': ('.model_related.sparse', 'SparseAttack'),
     'h2o': ('.model_related.h2o', 'H2OAttack'),
+    'moe': ('.model_related.moe', 'MoEAttack'),
     
     # ensemble
     'ens': ('.ensemble.ens', 'ENS'),

@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import Tensor
 
-from timm.models.vision_transformer import Attention
+from timm.models.vision_transformer import Attention,Mlp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,19 +35,36 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     
     
     q = q * self.scale
-    attn_weights = q @ k.transpose(-2, -1)
-    attn = attn_weights.softmax(dim=-1)
-    
-    
+    attn = q @ k.transpose(-2, -1)
+    attn = attn.softmax(dim=-1)
+    attn = self.attn_drop(attn)
+    # import pdb;pdb.set_trace()
+    # random drop 50% of the attention weights
+    attn = attn * (torch.rand_like(attn) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
     x = self.proj_drop(x)
     return x
+ 
+N = 3    
     
+def Wrapper_FFN_forward(self, x):
+    output = 0.
+    global N
+    for n in range(N):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = x * (torch.randn_like(x)>0.5).float()
+        # x = self.drop1(x)
+        x = self.fc2(x)
+        # x = self.drop2(x)
+        output += x
+    output = output / N
+    return output
 
 
-class H2OAttack(Attack):    
+class MoEAttack(Attack):    
     def __init__(self, model_name, epsilon=16/255, alpha=1.6/255, epoch=10, decay=1., resize_rate=1.1, diversity_prob=0.5, targeted=False, random_start=False, 
                 norm='linfty', loss='crossentropy', device=None, attack='GI-FGSM',  s=10, **kwargs):
         super().__init__(attack, model_name, epsilon, targeted, random_start, norm, loss, device, **kwargs)
@@ -69,6 +86,8 @@ class H2OAttack(Attack):
         for name, module in self.model.named_modules():
             if isinstance(module, Attention):
                 module.forward = Wrapped_Attention_forward.__get__(module)
+            if isinstance(module, Mlp):
+                module.forward = Wrapper_FFN_forward.__get__(module)
         
 
 
