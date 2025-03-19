@@ -82,8 +82,8 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     x = attn @ v
     
     if filling:
-        import pdb;pdb.set_trace()
-        x = x[:, :num_tokens]
+        # import pdb;pdb.set_trace()
+        x = x[:, :,:num_tokens]
     
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
