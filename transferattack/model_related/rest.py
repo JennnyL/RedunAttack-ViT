@@ -152,13 +152,12 @@ class RESTAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         
-        with torch.no_grad():
-            logits = self.get_logits(data)
-            global attn_weights
-            attn_weights_benign = attn_weights
-            attn_weights = []
         
-        # import pdb;pdb.set_trace()
+        
+        global q_rest, k_rest, v_rest
+        q_rest = {}
+        k_rest = {}
+        v_rest = {}
         
         
         momentum = 0.
