@@ -31,7 +31,6 @@ v_rest = {}
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
-    import pdb;pdb.set_trace()
     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
     q, k, v = qkv.unbind(0)
     
@@ -47,6 +46,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         v = torch.cat([v, v_rest[named_id]], dim=1)
     else:
         # randomly sample a subset of tokens (10%)
+        import pdb;pdb.set_trace()
         sample_num_tokens = int(0.1 * num_tokens)
         token_ids = torch.arange(1,num_tokens)
         sampled_token_ids = torch.random.shuffle(token_ids)[:sample_num_tokens]
