@@ -25,11 +25,36 @@ from ..attack import Attack
 
 attn_weights = []
 
+q_rest = {}
+k_rest = {}
+v_rest = {}
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
+    import pdb;pdb.set_trace()
     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
     q, k, v = qkv.unbind(0)
+    
+    named_id = self.named_id
+    global q_rest, k_rest, v_rest
+    num_tokens = q.shape[1]
+    filling = False
+    if named_id in q_rest:
+        # concatenate the q, k, v
+        filling = True
+        q = torch.cat([q, q_rest[named_id]], dim=1)
+        k = torch.cat([k, k_rest[named_id]], dim=1)
+        v = torch.cat([v, v_rest[named_id]], dim=1)
+    else:
+        # randomly sample a subset of tokens (10%)
+        sample_num_tokens = int(0.1 * num_tokens)
+        token_ids = torch.arange(1,num_tokens)
+        sampled_token_ids = torch.random.shuffle(token_ids)[:sample_num_tokens]
+        q_rest[named_id] = q[:, sampled_token_ids]
+        k_rest[named_id] = k[:, sampled_token_ids]
+        v_rest[named_id] = v[:, sampled_token_ids]
+    
+    
     q, k = self.q_norm(q), self.k_norm(k)
     # import pdb;pdb.set_trace()
     
@@ -40,13 +65,17 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = self.attn_drop(attn)
     
     # attn: (N, num_heads, P, P)
-    global attn_weights
-    attn_weights.append(attn)
-    import pdb;pdb.set_trace()
+    # global attn_weights
+    # attn_weights.append(attn)
+    # import pdb;pdb.set_trace()
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
     # attn = attn * (torch.rand_like(attn) > 0.5).float()
     x = attn @ v
+    
+    if filling:
+        x = x[:, :num_tokens]
+    
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
     x = self.proj_drop(x)
@@ -89,8 +118,10 @@ class RESTAttack(Attack):
     
     def wrap_attention(self):
         # transform the attention module in the model to the wrapped attention module
+        module_id = 0
         for name, module in self.model.named_modules():
             if isinstance(module, Attention):
+                module.named_id = module_id
                 module.forward = Wrapped_Attention_forward.__get__(module)
             # if isinstance(module, Mlp):
             #     module.forward = Wrapper_FFN_forward.__get__(module)
