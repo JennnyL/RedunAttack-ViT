@@ -40,19 +40,19 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = self.attn_drop(attn)
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
-    # attn = attn * (torch.rand_like(attn) > 0.5).float()
+    attn = attn * (torch.rand_like(attn) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
     x = self.proj_drop(x)
     return x
  
-N = 5    
+N = 3    
     
 def Wrapper_FFN_forward(self, input):
     output = 0.
     global N
-    current_N = np.random.randint(2, N+1)
+    current_N = np.random.randint(1, N+1)
     for n in range(current_N):
         x = self.fc1(input)
         x = self.act(x)
