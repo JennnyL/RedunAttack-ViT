@@ -41,9 +41,9 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     if named_id in q_rest:
         # concatenate the q, k, v
         filling = True
-        q = torch.cat([q, q_rest[named_id]], dim=1)
-        k = torch.cat([k, k_rest[named_id]], dim=1)
-        v = torch.cat([v, v_rest[named_id]], dim=1)
+        q = torch.cat([q, q_rest[named_id]], dim=2)
+        k = torch.cat([k, k_rest[named_id]], dim=2)
+        v = torch.cat([v, v_rest[named_id]], dim=2)
     else:
         # randomly sample a subset of tokens (10%)
         sample_num_tokens = int(0.1 * num_tokens)
@@ -56,7 +56,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         # selected_token_ids shape: (head, sample_num_tokens)
         # q shape: (B, num_heads, num_tokens, head_dim)
         # fetch the sampled tokens
-        import pdb;pdb.set_trace()
+        # import pdb;pdb.set_trace()
         q_rest[named_id] = q[batch_indices, head_indices, selected_token_ids]
         k_rest[named_id] = k[batch_indices, head_indices, selected_token_ids]
         v_rest[named_id] = v[batch_indices, head_indices, selected_token_ids]
@@ -82,6 +82,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     x = attn @ v
     
     if filling:
+        import pdb;pdb.set_trace()
         x = x[:, :num_tokens]
     
     x = x.transpose(1, 2).reshape(B, N, C)
