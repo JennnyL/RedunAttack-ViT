@@ -90,22 +90,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     x = self.proj_drop(x)
     return x
  
-N = 3    
-    
-def Wrapper_FFN_forward(self, input):
-    output = 0.
-    global N
-    current_N = np.random.randint(1, N+1)
-    for n in range(current_N):
-        x = self.fc1(input)
-        x = self.act(x)
-        x = x * (torch.rand_like(x)>0.3).float()
-        # x = self.drop1(x)
-        x = self.fc2(x)
-        # x = self.drop2(x)
-        output += x
-    output = output / current_N
-    return output
+
 
 
 class RESTAttack(Attack):    
@@ -172,7 +157,7 @@ class RESTAttack(Attack):
             # attn_weights = []
             
             # import pdb;pdb.set_trace()
-            loss = self.get_loss(logits, label, attn_weights_benign)
+            loss = self.get_loss(logits, label)
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
             # Calculate the momentum
