@@ -38,9 +38,14 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = q @ k.transpose(-2, -1)
     attn = attn.softmax(dim=-1)
     attn = self.attn_drop(attn)
+    
+    # attn: (N, num_heads, P, P)
+    global attn_weights
+    attn_weights.append(attn)
+    import pdb;pdb.set_trace()
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
-    attn = attn * (torch.rand_like(attn) > 0.5).float()
+    # attn = attn * (torch.rand_like(attn) > 0.5).float()
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
@@ -65,7 +70,7 @@ def Wrapper_FFN_forward(self, input):
     return output
 
 
-class MoEAttack(Attack):    
+class RESTAttack(Attack):    
     def __init__(self, model_name, epsilon=16/255, alpha=1.6/255, epoch=10, decay=1., resize_rate=1.1, diversity_prob=0.5, targeted=False, random_start=False, 
                 norm='linfty', loss='crossentropy', device=None, attack='GI-FGSM',  s=10, **kwargs):
         super().__init__(attack, model_name, epsilon, targeted, random_start, norm, loss, device, **kwargs)
@@ -87,8 +92,8 @@ class MoEAttack(Attack):
         for name, module in self.model.named_modules():
             if isinstance(module, Attention):
                 module.forward = Wrapped_Attention_forward.__get__(module)
-            if isinstance(module, Mlp):
-                module.forward = Wrapper_FFN_forward.__get__(module)
+            # if isinstance(module, Mlp):
+            #     module.forward = Wrapper_FFN_forward.__get__(module)
         
 
 
