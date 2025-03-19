@@ -49,14 +49,17 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         sample_num_tokens = int(0.1 * num_tokens)
         num_heads = q.shape[1]
         selected_token_ids = [torch.from_numpy(np.random.choice(torch.arange(1,num_tokens), sample_num_tokens,replace=False)) for _ in range(num_heads)]
-        selected_token_ids = torch.stack(selected_token_ids, dim=0)
+        selected_token_ids = torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)
+        batch_indices = torch.arange(B).view(B, 1, 1).expand(-1, num_heads, sample_num_tokens)
+        head_indices = torch.arange(num_heads).view(1, num_heads, 1).expand(B, -1, sample_num_tokens)
+
         # selected_token_ids shape: (head, sample_num_tokens)
         # q shape: (B, num_heads, num_tokens, head_dim)
         # fetch the sampled tokens
         import pdb;pdb.set_trace()
-        q_rest[named_id] = q.gather(2, selected_token_ids.unsqueeze(-1).expand(-1, -1, -1, self.head_dim))
-        k_rest[named_id] = k.gather(2, selected_token_ids.unsqueeze(-1).expand(-1, -1, -1, self.head_dim))
-        v_rest[named_id] = v.gather(2, selected_token_ids.unsqueeze(-1).expand(-1, -1, -1, self.head_dim))
+        q_rest[named_id] = q[batch_indices, head_indices, selected_token_ids]
+        k_rest[named_id] = k[batch_indices, head_indices, selected_token_ids]
+        v_rest[named_id] = v[batch_indices, head_indices, selected_token_ids]
         
     
     
