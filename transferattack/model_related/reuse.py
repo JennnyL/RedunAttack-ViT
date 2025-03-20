@@ -25,44 +25,11 @@ from ..attack import Attack
 
 attn_weights = []
 
-q_rest = {}
-k_rest = {}
-v_rest = {}
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
     q, k, v = qkv.unbind(0)
-    
-    named_id = self.named_id
-    global q_rest, k_rest, v_rest
-    num_tokens = q.shape[2]
-    filling = False
-    if named_id in q_rest:
-        # concatenate the q, k, v
-        filling = True
-        q = torch.cat([q, q_rest[named_id]], dim=2)
-        k = torch.cat([k, k_rest[named_id]], dim=2)
-        v = torch.cat([v, v_rest[named_id]], dim=2)
-    else:
-        # randomly sample a subset of tokens (10%)
-        sample_num_tokens = int(0.1 * num_tokens)
-        num_heads = q.shape[1]
-        selected_token_ids = [torch.from_numpy(np.random.choice(torch.arange(1,num_tokens), sample_num_tokens,replace=False)) for _ in range(num_heads)]
-        selected_token_ids = torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)
-        batch_indices = torch.arange(B).view(B, 1, 1).expand(-1, num_heads, sample_num_tokens)
-        head_indices = torch.arange(num_heads).view(1, num_heads, 1).expand(B, -1, sample_num_tokens)
-
-        # selected_token_ids shape: (head, sample_num_tokens)
-        # q shape: (B, num_heads, num_tokens, head_dim)
-        # fetch the sampled tokens
-        # import pdb;pdb.set_trace()
-        q_rest[named_id] = q[batch_indices, head_indices, selected_token_ids]
-        k_rest[named_id] = k[batch_indices, head_indices, selected_token_ids]
-        v_rest[named_id] = v[batch_indices, head_indices, selected_token_ids]
-        
-    
-    
     q, k = self.q_norm(q), self.k_norm(k)
     # import pdb;pdb.set_trace()
     
@@ -71,20 +38,13 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     attn = q @ k.transpose(-2, -1)
     attn = attn.softmax(dim=-1)
     attn = self.attn_drop(attn)
-    
-    # attn: (N, num_heads, P, P)
-    # global attn_weights
-    # attn_weights.append(attn)
-    # import pdb;pdb.set_trace()
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
     # attn = attn * (torch.rand_like(attn) > 0.5).float()
+    
+    
+    
     x = attn @ v
-    
-    if filling:
-        # import pdb;pdb.set_trace()
-        x = x[:, :,:num_tokens]
-    
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
     x = self.proj_drop(x)
@@ -93,7 +53,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
 
 
 
-class RESTAttack(Attack):    
+class MoEAttack(Attack):    
     def __init__(self, model_name, epsilon=16/255, alpha=1.6/255, epoch=10, decay=1., resize_rate=1.1, diversity_prob=0.5, targeted=False, random_start=False, 
                 norm='linfty', loss='crossentropy', device=None, attack='GI-FGSM',  s=10, **kwargs):
         super().__init__(attack, model_name, epsilon, targeted, random_start, norm, loss, device, **kwargs)
@@ -118,8 +78,6 @@ class RESTAttack(Attack):
                 module.named_id = module_id
                 module.forward = Wrapped_Attention_forward.__get__(module)
                 module_id += 1
-            # if isinstance(module, Mlp):
-            #     module.forward = Wrapper_FFN_forward.__get__(module)
         
 
 
@@ -138,12 +96,13 @@ class RESTAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         
+        with torch.no_grad():
+            logits = self.get_logits(data)
+            global attn_weights
+            attn_weights_benign = attn_weights
+            attn_weights = []
         
-        
-        global q_rest, k_rest, v_rest
-        q_rest = {}
-        k_rest = {}
-        v_rest = {}
+        # import pdb;pdb.set_trace()
         
         
         momentum = 0.
@@ -158,7 +117,7 @@ class RESTAttack(Attack):
             # attn_weights = []
             
             # import pdb;pdb.set_trace()
-            loss = self.get_loss(logits, label)
+            loss = self.get_loss(logits, label, attn_weights_benign)
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
             # Calculate the momentum
