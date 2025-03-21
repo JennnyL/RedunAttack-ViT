@@ -47,8 +47,10 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
 
     
     if torch.rand(1) < shuffle_prob:
-        # random shuffle the attention weights of different heads
-        attn = attn[torch.randperm(attn.size(1))]
+        # random shuffle the attention weights of different heads, along the second dimension
+        num_heads = attn.shape[1]
+        head_indices = torch.randperm(num_heads)
+        attn = attn[:, head_indices, :]
     
     
     
