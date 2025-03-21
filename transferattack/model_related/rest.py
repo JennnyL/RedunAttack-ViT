@@ -117,7 +117,7 @@ class RESTAttack(Attack):
             if isinstance(module, Attention):
                 module.named_id = module_id
                 module.forward = Wrapped_Attention_forward.__get__(module)
-                module_id += 1
+                # module_id += 1
             # if isinstance(module, Mlp):
             #     module.forward = Wrapper_FFN_forward.__get__(module)
         
