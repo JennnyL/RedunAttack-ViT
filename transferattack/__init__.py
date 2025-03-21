@@ -104,6 +104,7 @@ attack_zoo = {
     'h2o': ('.model_related.h2o', 'H2OAttack'),
     'moe': ('.model_related.moe', 'MoEAttack'),
     'rest': ('.model_related.rest', 'RESTAttack'),
+    'reuse': ('.model_related.reuse', 'ReuseAttack'),
     
     # ensemble
     'ens': ('.ensemble.ens', 'ENS'),

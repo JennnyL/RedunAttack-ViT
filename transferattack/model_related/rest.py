@@ -46,7 +46,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         v = torch.cat([v, v_rest[named_id]], dim=2)
     else:
         # randomly sample a subset of tokens (10%)
-        sample_num_tokens = int(0.1 * num_tokens)
+        sample_num_tokens = int(0.3 * num_tokens)
         num_heads = q.shape[1]
         selected_token_ids = [torch.from_numpy(np.random.choice(torch.arange(1,num_tokens), sample_num_tokens,replace=False)) for _ in range(num_heads)]
         selected_token_ids = torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)

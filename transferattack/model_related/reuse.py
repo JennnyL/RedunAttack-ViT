@@ -23,8 +23,9 @@ from ..utils import *
 from ..attack import Attack
 
 
-attn_weights = []
+attn_weights = {}
 
+reuse_prob = 0.3
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
@@ -41,6 +42,15 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
     # attn = attn * (torch.rand_like(attn) > 0.5).float()
+    module_id = self.named_id
+    
+    attn_weights{module_id} = attn
+    
+    if torch.rand(1) < reuse_prob:
+        to_selected_candidates = torch.arange(0, module_id+1)
+        selected_id = torch.from_numpy(np.random.choice(to_selected_candidates, 1, replace=False))
+        attn = attn_weights[selected_id]
+    
     
     
     
@@ -53,7 +63,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
 
 
 
-class MoEAttack(Attack):    
+class ReuseAttack(Attack):    
     def __init__(self, model_name, epsilon=16/255, alpha=1.6/255, epoch=10, decay=1., resize_rate=1.1, diversity_prob=0.5, targeted=False, random_start=False, 
                 norm='linfty', loss='crossentropy', device=None, attack='GI-FGSM',  s=10, **kwargs):
         super().__init__(attack, model_name, epsilon, targeted, random_start, norm, loss, device, **kwargs)
@@ -96,13 +106,8 @@ class MoEAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         
-        with torch.no_grad():
-            logits = self.get_logits(data)
-            global attn_weights
-            attn_weights_benign = attn_weights
-            attn_weights = []
-        
-        # import pdb;pdb.set_trace()
+       global attn_weights
+       attn_weights = {}
         
         
         momentum = 0.
@@ -117,7 +122,7 @@ class MoEAttack(Attack):
             # attn_weights = []
             
             # import pdb;pdb.set_trace()
-            loss = self.get_loss(logits, label, attn_weights_benign)
+            loss = self.get_loss(logits, label)
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
             # Calculate the momentum
