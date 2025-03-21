@@ -106,6 +106,7 @@ attack_zoo = {
     'rest': ('.model_related.rest', 'RESTAttack'),
     'reuse': ('.model_related.reuse', 'ReuseAttack'),
     'shuffle': ('.model_related.shuffle', 'ShuffleAttack'),
+    'learn': ('.model_related.learn', 'LearnAttack'),
     
     # ensemble
     'ens': ('.ensemble.ens', 'ENS'),
