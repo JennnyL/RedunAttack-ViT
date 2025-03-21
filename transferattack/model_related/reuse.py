@@ -48,7 +48,7 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     
     if torch.rand(1) < reuse_prob:
         to_selected_candidates = torch.arange(0, module_id+1)
-        selected_id = torch.from_numpy(np.random.choice(to_selected_candidates, 1, replace=False))
+        selected_id = np.random.choice(to_selected_candidates, 1, replace=False)[0]
         attn = attn_weights[selected_id]
     
     
