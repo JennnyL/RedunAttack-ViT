@@ -120,7 +120,7 @@ class Attack(object):
         """
         The gradient calculation, which should be overridden when the attack need to tune the gradient (e.g., TIM, variance tuning, enhanced momentum, etc.)
         """
-        return torch.autograd.grad(loss, delta, retain_graph=False, create_graph=False)[0]
+        return torch.autograd.grad(loss, delta, retain_graph=True, create_graph=False)[0]
 
     def get_momentum(self, grad, momentum, **kwargs):
         """
