@@ -106,8 +106,8 @@ class ReuseAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         
-       global attn_weights
-       attn_weights = {}
+        global attn_weights
+        attn_weights = {}
         
         
         momentum = 0.
