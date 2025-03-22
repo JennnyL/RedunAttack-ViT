@@ -34,9 +34,9 @@ def forward_features(self, x):
     # weight = F.softmax(opt_tokens, dim=-1)
     # import pdb;pdb.set_trace()
     if opt_tokens is not None:
-        append_token = torch.einsum('tn,bnd->btd', opt_tokens, x[:,1:])
-
-        x = torch.cat([x, append_token], dim=1)
+        # append_token = torch.einsum('tn,bnd->btd', opt_tokens, x[:,1:])
+        # x = torch.cat([x, append_token], dim=1)
+        x = torch.cat([x, opt_tokens], dim=1)
     else:
         x = x
     
@@ -69,17 +69,19 @@ class LearnAttack(Attack):
         self.num_tokens = 10
         self.token_dim = 768
         self.num_patches = 196
+        self.prompt_learning_alpha = 1e-3
         self.model = self.wrap_forward_features(self.model)
 
-    def init_robust_delta(self):
-        delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
+    def init_robust_delta(self,N):
+        # delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
+        delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
         delta.requires_grad = True
         return delta
     
-    def update_robust_delta(self, delta, grad, alpha, **kwargs):
+    def update_robust_delta(self, delta, grad,  **kwargs):
         # grad_norm = torch.norm(grad.view(grad.size(0), -1), dim=1, keepdim=True)
         # scaled_grad = grad # / (grad_norm + 1e-20)
-        delta = delta - grad.sign() * alpha
+        delta = delta - grad * self.prompt_learning_alpha
         # import pdb;pdb.set_trace()
         return delta.detach().requires_grad_(True)
     
@@ -107,6 +109,22 @@ class LearnAttack(Attack):
         raise Exception('The model does not contain VisionTransformer module')
         
 
+    
+    def init_delta(self, data, **kwargs):
+        delta = torch.zeros_like(data).to(self.device)
+        if self.random_start:
+            if self.norm == 'linfty':
+                delta.uniform_(-self.epsilon, self.epsilon)
+            else:
+                delta.normal_(-self.epsilon, self.epsilon)
+                d_flat = delta.view(delta.size(0), -1)
+                n = d_flat.norm(p=2, dim=-1).view(delta.size(0), 1, 1, 1)
+                r = torch.zeros_like(data).uniform_(0,1).to(self.device)
+                delta *= r/n*self.epsilon
+            delta = clamp(delta, img_min-data, img_max-data)
+        delta.requires_grad = True
+        return delta
+    
 
 
     def forward(self, data, label, **kwargs):
@@ -123,7 +141,7 @@ class LearnAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         
-        robust_delta = self.init_robust_delta()
+        robust_delta = self.init_robust_delta(len(data)).to(self.device)
         global opt_tokens
         opt_tokens = robust_delta
         
@@ -133,32 +151,29 @@ class LearnAttack(Attack):
         momentum = 0.
         momentum_robust = 0.
         delta = self.init_delta(data).to(self.device)
+        fgsm_delta = self.init_delta(data+delta.detach()).to(self.device)
         for _ in range(self.epoch):
-            # Obtain the output
+            # self.random_start = True
+            # fgsm_delta = self.init_delta(data+delta.detach()).to(self.device)
+            # self.random_start = False
+            # for _ in range(self.pre_epoch):
+            logits = self.get_logits(self.transform(data+fgsm_delta, momentum=momentum))
+            robust_loss = self.get_loss(logits, label)
+            fgsm_grad = self.get_grad(robust_loss, fgsm_delta)
+            fgsm_delta = self.update_delta(fgsm_delta, data, fgsm_grad, self.epsilon)
             
-            opt_tokens = robust_delta
-            logits = self.get_logits(self.transform(data+delta, momentum=momentum))
-            # Calculate the loss
+            logits = self.get_logits(self.transform(data+fgsm_delta, momentum=momentum))
             loss = self.get_loss(logits, label)
-            with torch.no_grad():
-                opt_tokens = None
-                logits_robust = self.get_logits(self.transform(data+delta, momentum=momentum_robust))
-                pre_loss = self.get_loss(logits_robust, label)
-            # print(loss.item(), pre_loss.item())
-            # Calculate the gradients
+            robust_grad = self.get_grad(loss, opt_tokens)
+            momentum_robust = self.get_robust_momentum(robust_grad, momentum_robust)
+            opt_tokens = self.update_robust_delta(opt_tokens, momentum_robust)
+            
+            logits = self.get_logits(self.transform(data+delta, momentum=momentum))
+            loss = self.get_loss(logits, label)
             grad = self.get_grad(loss, delta)
-            
-            grad_opt = self.get_grad(loss, robust_delta)
-            
-            # Calculate the momentum
             momentum = self.get_momentum(grad, momentum)
-            momentum_robust = self.get_robust_momentum(grad_opt, momentum_robust)
-            # Update adversarial perturbation
             delta = self.update_delta(delta, data, momentum, self.alpha)
-            # robust_delta = self.update_robust_delta(robust_delta, momentum_robust, self.alpha/10)
-        
-        # import pdb;pdb.set_trace()
-        
+            
         return delta.detach()
     
 
