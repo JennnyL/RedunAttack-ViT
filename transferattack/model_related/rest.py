@@ -29,6 +29,10 @@ q_rest = {}
 k_rest = {}
 v_rest = {}
 
+
+rest_p = 0.3
+
+
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
@@ -46,7 +50,8 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         v = torch.cat([v, v_rest[named_id]], dim=2)
     else:
         # randomly sample a subset of tokens (10%)
-        sample_num_tokens = int(0.3 * num_tokens)
+        global rest_p
+        sample_num_tokens = int(rest_p * num_tokens)
         num_heads = q.shape[1]
         selected_token_ids = [torch.from_numpy(np.random.choice(torch.arange(1,num_tokens), sample_num_tokens,replace=False)) for _ in range(num_heads)]
         selected_token_ids = torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)
@@ -144,6 +149,11 @@ class RESTAttack(Attack):
         q_rest = {}
         k_rest = {}
         v_rest = {}
+        
+        
+        import os
+        global rest_p
+        rest_p = os.environ.get("REST_P", 0.3)
         
         
         momentum = 0.

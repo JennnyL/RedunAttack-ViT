@@ -76,6 +76,7 @@ class MoEAttack(Attack):
         self.resize_rate = resize_rate
         self.diversity_prob = diversity_prob
         self.wrap_attention()
+        
     
     
     
@@ -106,6 +107,11 @@ class MoEAttack(Attack):
             label = label[1] # the second element is the targeted label tensor
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
+        
+        moe_n = os.environ.get("MOE_N", 5)
+        global N
+        N = int(moe_n)
+        
         
         with torch.no_grad():
             logits = self.get_logits(data)
