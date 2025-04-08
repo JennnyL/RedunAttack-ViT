@@ -153,7 +153,7 @@ class RESTAttack(Attack):
         
         import os
         global rest_p
-        rest_p = os.environ.get("REST_P", 0.3)
+        rest_p = float(os.environ.get("REST_P", 0.3))
         
         
         momentum = 0.
