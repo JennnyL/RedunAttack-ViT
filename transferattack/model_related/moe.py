@@ -48,15 +48,17 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     return x
  
 N = 5    
+moe_prob = 0.3
     
 def Wrapper_FFN_forward(self, input):
     output = 0.
     global N
+    global moe_prob
     current_N = np.random.randint(2, N+1)
     for n in range(current_N):
         x = self.fc1(input)
         x = self.act(x)
-        x = x * (torch.rand_like(x)>0.3).float()
+        x = x * (torch.rand_like(x)>moe_prob).float()
         # x = self.drop1(x)
         x = self.fc2(x)
         # x = self.drop2(x)
@@ -76,6 +78,7 @@ class MoEAttack(Attack):
         self.resize_rate = resize_rate
         self.diversity_prob = diversity_prob
         self.wrap_attention()
+        
     
     
     
@@ -106,6 +109,13 @@ class MoEAttack(Attack):
             label = label[1] # the second element is the targeted label tensor
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
+        
+        moe_n = os.environ.get("MOE_N", 5)
+        global N
+        N = int(moe_n)
+        
+        global moe_prob
+        moe_prob = float(os.environ.get("MOE_PROB", 0.3))
         
         with torch.no_grad():
             logits = self.get_logits(data)
