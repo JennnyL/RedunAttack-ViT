@@ -45,9 +45,9 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     # attn = attn * (torch.rand_like(attn) > 0.5).float()
     # module_id = self.named_id
 
-    assert os.environ.get["SHUFFLE_PROB"] is not None
-    shuffle_prob = float(os.environ.get["SHUFFLE_PROB"])
-    print(f'SHUFFLE_PROB: {float(os.environ.get["SHUFFLE_PROB"])}')
+    assert os.environ.get("SHUFFLE_PROB", None) is not None
+    shuffle_prob = float(os.environ.get("SHUFFLE_PROB", None))
+    # print(f'SHUFFLE_PROB: {float(os.environ.get("SHUFFLE_PROB", None))}')
 
     if torch.rand(1) < shuffle_prob:
         # random shuffle the attention weights of different heads, along the second dimension

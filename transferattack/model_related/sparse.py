@@ -44,9 +44,9 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
     # import pdb;pdb.set_trace()
     # random drop 50% of the attention weights
 
-    assert os.environ.get["ATTN_DROP_RATE"] is not None
-    attn_drop_rate = float(os.environ.get["ATTN_DROP_RATE"])
-    print(f'ATTN_DROP_RATE: {float(os.environ.get["ATTN_DROP_RATE"])}')
+    assert os.environ.get("ATTN_DROP_RATE", None) is not None
+    attn_drop_rate = float(os.environ.get("ATTN_DROP_RATE", None))
+    # print(f'ATTN_DROP_RATE: {float(os.environ.get("ATTN_DROP_RATE", None))}')
 
     attn = attn * (torch.rand_like(attn) > attn_drop_rate).float()
     x = attn @ v
