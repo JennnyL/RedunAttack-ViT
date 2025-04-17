@@ -67,6 +67,22 @@ def get_parser():
     )
     parser.add_argument("--targeted", action="store_true", help="targeted attack")
     parser.add_argument("--GPU_ID", default="0", type=str)
+    parser.add_argument("--num_tokens", default=10, type=int, help="for learn attack")
+    parser.add_argument(
+        "--num_tokens_use_ratio", default=1, type=float, help="for learn attack"
+    )
+    parser.add_argument(
+        "--load_tokens",
+        action="store_true",
+        default=False,
+        help="for learn attack, whether to load global robust tokens or dynamically gen robust tokens",
+    )
+    parser.add_argument(
+        "--dropout_prob",
+        type=float,
+        default=0,
+        help="for learn attack",
+    )
     return parser.parse_args()
 
 
@@ -89,10 +105,20 @@ def main():
     if not args.eval:
         if args.ensemble or len(args.model.split(",")) > 1:
             args.model = args.model.split(",")
-        attacker = transferattack.load_attack_class(args.attack)(
-            model_name=args.model, targeted=args.targeted, epoch=args.epoch
-        )
-
+        if args.attack == "learn":
+            attacker = transferattack.load_attack_class(args.attack)(
+                model_name=args.model,
+                targeted=args.targeted,
+                epoch=args.epoch,
+                num_tokens=args.num_tokens,
+                num_tokens_use_ratio=args.num_tokens_use_ratio,
+            )
+        else:
+            attacker = transferattack.load_attack_class(args.attack)(
+                model_name=args.model,
+                targeted=args.targeted,
+                epoch=args.epoch,
+            )
         for batch_idx, [images, labels, filenames] in tqdm.tqdm(enumerate(dataloader)):
             if args.attack in ["ttp", "m3d"]:
                 for idx, target_class in enumerate(generation_target_classes):
@@ -102,7 +128,21 @@ def main():
                         os.makedirs(new_output_dir)
                     save_images(new_output_dir, images + perturbations.cpu(), filenames)
             else:
-                perturbations = attacker(images, labels)
+                if batch_idx >= 1000:
+                    break
+                if args.attack == "learn":
+                    perturbations = attacker(
+                        images,
+                        labels,
+                        total_images_num=len(dataset),
+                        load_tokens=args.load_tokens,
+                        batch_idx=batch_idx,
+                        dropout_prob=args.dropout_prob,
+                    )
+                else:
+                    perturbations = attacker(images, labels)
+                if len(dataset) >= 10000:
+                    continue
                 save_images(args.output_dir, images + perturbations.cpu(), filenames)
     else:
         res = "|"
