@@ -8,21 +8,81 @@ from transferattack.utils import *
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description='Generating transferable adversaria examples')
-    parser.add_argument('-e', '--eval', action='store_true', help='attack/evluation')
-    parser.add_argument('--attack', default='mifgsm', type=str, help='the attack algorithm', choices=transferattack.attack_zoo.keys())
-    parser.add_argument('--epoch', default=10, type=int, help='the iterations for updating the adversarial patch')
-    parser.add_argument('--batchsize', default=32, type=int, help='the bacth size')
-    parser.add_argument('--eps', default=16 / 255, type=float, help='the stepsize to update the perturbation')
-    parser.add_argument('--alpha', default=1.6 / 255, type=float, help='the stepsize to update the perturbation')
-    parser.add_argument('--momentum', default=0., type=float, help='the decay factor for momentum based attack')
-    parser.add_argument('--model', default='resnet18', type=str, help='the source surrogate model')
-    parser.add_argument('--ensemble', action='store_true', help='enable ensemble attack')
-    parser.add_argument('--random_start', default=False, type=bool, help='set random start')
-    parser.add_argument('--input_dir', default='./data', type=str, help='the path for custom benign images, default: untargeted attack data')
-    parser.add_argument('--output_dir', default='./results', type=str, help='the path to store the adversarial patches')
-    parser.add_argument('--targeted', action='store_true', help='targeted attack')
-    parser.add_argument('--GPU_ID', default='0', type=str)
+    parser = argparse.ArgumentParser(
+        description="Generating transferable adversaria examples"
+    )
+    parser.add_argument("-e", "--eval", action="store_true", help="attack/evluation")
+    parser.add_argument(
+        "--attack",
+        default="mifgsm",
+        type=str,
+        help="the attack algorithm",
+        choices=transferattack.attack_zoo.keys(),
+    )
+    parser.add_argument(
+        "--epoch",
+        default=10,
+        type=int,
+        help="the iterations for updating the adversarial patch",
+    )
+    parser.add_argument("--batchsize", default=32, type=int, help="the bacth size")
+    parser.add_argument(
+        "--eps",
+        default=16 / 255,
+        type=float,
+        help="the stepsize to update the perturbation",
+    )
+    parser.add_argument(
+        "--alpha",
+        default=1.6 / 255,
+        type=float,
+        help="the stepsize to update the perturbation",
+    )
+    parser.add_argument(
+        "--momentum",
+        default=0.0,
+        type=float,
+        help="the decay factor for momentum based attack",
+    )
+    parser.add_argument(
+        "--model", default="resnet18", type=str, help="the source surrogate model"
+    )
+    parser.add_argument(
+        "--ensemble", action="store_true", help="enable ensemble attack"
+    )
+    parser.add_argument(
+        "--random_start", default=False, type=bool, help="set random start"
+    )
+    parser.add_argument(
+        "--input_dir",
+        default="./data",
+        type=str,
+        help="the path for custom benign images, default: untargeted attack data",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="./results",
+        type=str,
+        help="the path to store the adversarial patches",
+    )
+    parser.add_argument("--targeted", action="store_true", help="targeted attack")
+    parser.add_argument("--GPU_ID", default="0", type=str)
+    parser.add_argument("--num_tokens", default=10, type=int, help="for learn attack")
+    parser.add_argument(
+        "--num_tokens_use_ratio", default=1, type=float, help="for learn attack"
+    )
+    parser.add_argument(
+        "--load_tokens",
+        action="store_true",
+        default=False,
+        help="for learn attack, whether to load global robust tokens or dynamically gen robust tokens",
+    )
+    parser.add_argument(
+        "--dropout_prob",
+        type=float,
+        default=0,
+        help="for learn attack",
+    )
     return parser.parse_args()
 
 
@@ -32,16 +92,35 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    dataset = AdvDataset(input_dir=args.input_dir, output_dir=args.output_dir, targeted=args.targeted, eval=args.eval)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batchsize, shuffle=False, num_workers=4)
+    dataset = AdvDataset(
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+        targeted=args.targeted,
+        eval=args.eval,
+    )
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=args.batchsize, shuffle=False, num_workers=2
+    )
 
     if not args.eval:
-        if args.ensemble or len(args.model.split(',')) > 1:
-            args.model = args.model.split(',')
-        attacker = transferattack.load_attack_class(args.attack)(model_name=args.model, targeted=args.targeted, epoch=args.epoch)
-
+        if args.ensemble or len(args.model.split(",")) > 1:
+            args.model = args.model.split(",")
+        if args.attack == "learn":
+            attacker = transferattack.load_attack_class(args.attack)(
+                model_name=args.model,
+                targeted=args.targeted,
+                epoch=args.epoch,
+                num_tokens=args.num_tokens,
+                num_tokens_use_ratio=args.num_tokens_use_ratio,
+            )
+        else:
+            attacker = transferattack.load_attack_class(args.attack)(
+                model_name=args.model,
+                targeted=args.targeted,
+                epoch=args.epoch,
+            )
         for batch_idx, [images, labels, filenames] in tqdm.tqdm(enumerate(dataloader)):
-            if args.attack in ['ttp', 'm3d']: 
+            if args.attack in ["ttp", "m3d"]:
                 for idx, target_class in enumerate(generation_target_classes):
                     perturbations = attacker(images, labels, idx)
                     new_output_dir = os.path.join(args.output_dir, str(target_class))
@@ -49,28 +128,55 @@ def main():
                         os.makedirs(new_output_dir)
                     save_images(new_output_dir, images + perturbations.cpu(), filenames)
             else:
-                perturbations = attacker(images, labels)
+                if batch_idx >= 1000:
+                    break
+                if args.attack == "learn":
+                    perturbations = attacker(
+                        images,
+                        labels,
+                        total_images_num=len(dataset),
+                        load_tokens=args.load_tokens,
+                        batch_idx=batch_idx,
+                        dropout_prob=args.dropout_prob,
+                    )
+                else:
+                    perturbations = attacker(images, labels)
+                if len(dataset) >= 10000:
+                    continue
                 save_images(args.output_dir, images + perturbations.cpu(), filenames)
     else:
-        res = '|'
-        for model_name, model in load_pretrained_model(cnn_model_paper, vit_model_paper):
+        res = "|"
+        for model_name, model in load_pretrained_model(
+            cnn_model_paper, vit_model_paper
+        ):
             model = wrap_model(model.eval().cuda())
             for p in model.parameters():
                 p.requires_grad = False
-                
-            if args.attack in ['ttp', 'm3d']: 
+
+            if args.attack in ["ttp", "m3d"]:
                 asr = 0
                 for idx, target_class in enumerate(generation_target_classes):
                     new_output_dir = os.path.join(args.output_dir, str(target_class))
-                    new_dataset = AdvDataset(input_dir=args.input_dir, output_dir=new_output_dir, targeted=True, target_class=target_class, eval=args.eval)
-                    new_dataloader = torch.utils.data.DataLoader(new_dataset, batch_size=args.batchsize, shuffle=False, num_workers=4)
+                    new_dataset = AdvDataset(
+                        input_dir=args.input_dir,
+                        output_dir=new_output_dir,
+                        targeted=True,
+                        target_class=target_class,
+                        eval=args.eval,
+                    )
+                    new_dataloader = torch.utils.data.DataLoader(
+                        new_dataset,
+                        batch_size=args.batchsize,
+                        shuffle=False,
+                        num_workers=4,
+                    )
                     asr += eval(model, new_dataloader, True)
                 asr /= 10
 
             else:
                 asr = eval(model, dataloader, args.targeted)
-            print(f'{model_name}: {asr:.1f}')
-            res += f' {asr:.1f} |'
+            print(f"{model_name}: {asr:.1f}")
+            res += f" {asr:.1f} |"
 
         print(res)
         # append model and attack name
@@ -99,5 +205,5 @@ def eval(model, dataloader, is_targeted):
     return asr
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

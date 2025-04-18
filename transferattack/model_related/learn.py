@@ -78,6 +78,14 @@ class LearnAttack(Attack):
         s=10,
         **kwargs,
     ):
+        assert kwargs is not None
+        assert kwargs.get("num_tokens", None) is not None
+        num_tokens = kwargs.get("num_tokens", None)
+        kwargs.pop("num_tokens")
+
+        assert kwargs.get("num_tokens_use_ratio", None) is not None
+        num_tokens_use_ratio = kwargs.get("num_tokens_use_ratio", None)
+        kwargs.pop("num_tokens_use_ratio")
         super().__init__(
             attack,
             model_name,
@@ -96,22 +104,30 @@ class LearnAttack(Attack):
         self.resize_rate = resize_rate
         self.diversity_prob = diversity_prob
         self.pre_epoch = 3
-        self.num_tokens = 400
+
+        self.num_tokens = num_tokens
+        self.num_tokens_use_ratio = num_tokens_use_ratio
+
         self.token_dim = 768
         self.num_patches = 196
-        self.prompt_learning_alpha = 1e-3
+        self.prompt_learning_alpha = 1e-2
         self.model = self.wrap_forward_features(self.model)
 
     def init_robust_delta(self, N):
-        # delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
-        delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
+        delta = torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
         delta.requires_grad = True
         return delta
 
     def update_robust_delta(self, delta, grad, **kwargs):
         # grad_norm = torch.norm(grad.view(grad.size(0), -1), dim=1, keepdim=True)
         # scaled_grad = grad # / (grad_norm + 1e-20)
-        delta = delta - grad * self.prompt_learning_alpha
+
+        # delta = delta - grad.sign() * self.prompt_learning_alpha
+        # import ipdb
+
+        # ipdb.set_trace()
+        delta = delta - grad.sign() * self.prompt_learning_alpha
+
         # import pdb;pdb.set_trace()
         return delta.detach().requires_grad_(True)
 
@@ -170,30 +186,105 @@ class LearnAttack(Attack):
         data = data.clone().detach().to(self.device)  # shape: (batch_size, c, h, w)
         label = label.clone().detach().to(self.device)  # shape: (batch_size, )
 
-        tensor_filepath = (
-            "./data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
-        )
-        robust_tokens = (
-            torch.load(tensor_filepath)
-            .to(self.device)
-            .unsqueeze(0)
-            .repeat([data.shape[0], 1, 1])
-        )
         global opt_tokens
+        if kwargs["load_tokens"]:
+            # tensor_filepath = f"./data/attack_image_robust_riter1_img50000_ensemble_{self.num_tokens}_tokens_randn_init_all.pt"
+            # tensor_filepath = f"./data/attack_image_robust_riter1_img50000_ensemble_{self.num_tokens}_tokens_all.pt"
+            # tensor_filepath = "./data/new_dymaic_attack_image_robust_riter1_img1000_ensemble_400/aa_merged.pt"
+            tensor_filepath = f"./data/zero_momentum_riter{1}_img{50000}_ensemble_{self.num_tokens}_new.pt"
+            print(f"successfully loaded {tensor_filepath}")
+            global_tokens = (
+                torch.load(tensor_filepath)
+                .to(self.device)
+                .reshape(-1, self.token_dim)
+                .repeat([len(data), 1, 1])  # (n, num_tokens, token_dim)
+                .clone()
+            )
+            # print(global_tokens.shape)
+            # tokens = []
+            # for _ in range(len(data)):
+            #     samples = random.sample(
+            #         range(0, len(global_tokens)),
+            #         self.num_tokens,
+            #     )
+            #     tokens.append(global_tokens[samples].unsqueeze(0).clone())
+            # robust_tokens = torch.cat(tokens, dim=0).clone().detach()
+            robust_tokens = global_tokens.clone().detach()
+            print(robust_tokens.shape)
+        else:
+            if opt_tokens is None:
+                robust_tokens = self.init_robust_delta(len(data)).to(self.device)
+            else:
+                robust_tokens = opt_tokens.clone().detach()
+                # robust_tokens = opt_tokens[: data.shape[0]].clone().detach()
+                robust_tokens.requires_grad = True
+                print("reuse the robust tokens of the first batch")
 
         momentum = 0.0
+        momentum_robust = 0.0
 
         attack_delta = self.init_delta(data).to(self.device)
 
-        for attack_idx in range(self.epoch):  # attack iteration
+        robust_max_iter = 1
+
+        for _ in range(self.epoch):  # attack iteration
             # 1. attack part
-            # opt_tokens = None
-            opt_tokens = robust_tokens.clone().detach()
+
+            # robust_tokens = self.init_robust_delta(len(data)).to(self.device)
+            # opt_tokens = robust_tokens.clone().detach()
+            opt_tokens = get_opt_tokens(
+                robust_tokens.clone().detach(), self.num_tokens_use_ratio
+            )
+
             logits = self.get_logits(self.transform(data + attack_delta))
             loss = self.get_loss(logits=logits, label=label)
             attack_grad = self.get_grad(loss, attack_delta)
             momentum = self.get_momentum(attack_grad, momentum=momentum)
             attack_delta = self.update_delta(attack_delta, data, momentum, self.alpha)
+
+            # 2. robustify part, only for dynamic tokens
+            if not kwargs["load_tokens"]:
+                pred_correct_num = []
+                for _ in range(robust_max_iter):
+                    opt_tokens = robust_tokens
+
+                    drop_prob = kwargs["dropout_prob"]
+                    mask = (
+                        torch.rand_like(opt_tokens) >= drop_prob
+                    )  # 每个元素以 (1 - p) 的概率保留
+                    opt_tokens = opt_tokens * mask  # 掩码应用
+
+                    # 可选：为了保持期望值不变，缩放输出
+                    opt_tokens = opt_tokens / (1 - drop_prob)
+
+                    robust_logits = self.get_logits(self.transform(data + attack_delta))
+                    pred_correct_num.append(
+                        (robust_logits.argmax(dim=1) == label).sum().cpu().item()
+                    )
+                    robust_loss = self.get_loss(logits=robust_logits, label=label)
+                    robust_grad = self.get_grad(robust_loss, robust_tokens)
+                    momentum_robust = self.get_robust_momentum(robust_grad, momentum=0)
+                    robust_tokens = self.update_robust_delta(
+                        robust_tokens, momentum_robust
+                    )
+
+        # only save tokens for dynamic tokens
+        if not kwargs["load_tokens"]:
+            # tensor_folder = f"./data/zero_momentum_attack_image_robust_riter{robust_max_iter}_img{kwargs['total_images_num']}_ensemble_{self.num_tokens}/"
+            # os.makedirs(tensor_folder, exist_ok=True)
+            # tensor_filepath = os.path.join(
+            #     tensor_folder, f"batch_{kwargs['batch_idx']}.pt"
+            # )
+
+            tensor_filepath = os.path.join(
+                "./data/",
+                f"zero_momentum_riter{robust_max_iter}_img{kwargs['total_images_num']}_ensemble_{self.num_tokens}_new.pt",
+            )
+            # if os.path.exists(tensor_filepath):
+            #     tokens = torch.load(tensor_filepath)
+            #     robust_tokens = torch.cat([tokens, robust_tokens], dim=0)
+            torch.save(robust_tokens, tensor_filepath)
+            # print("successfully saved tokens")
 
         return attack_delta.detach()
 
@@ -222,3 +313,19 @@ class LearnAttack(Attack):
             # import pdb;pdb.set_trace()
             loss = loss / len(attn_weights_benign)
             return ori_loss - loss
+
+
+def get_opt_tokens(robust_tokens, num_tokens_use_ratio, keep_order=True):
+    if num_tokens_use_ratio >= 1:
+        return robust_tokens
+
+    sampled_robust_tokens = []
+    for ii in range(len(robust_tokens)):
+        samples = random.sample(
+            range(0, robust_tokens.shape[1]),
+            int(num_tokens_use_ratio * robust_tokens.shape[1]),
+        )
+        if keep_order:
+            samples = sorted(samples)
+        sampled_robust_tokens.append(robust_tokens[ii, samples].unsqueeze(0))
+    return torch.cat(sampled_robust_tokens, dim=0).clone().detach()

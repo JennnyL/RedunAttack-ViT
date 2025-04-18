@@ -110,6 +110,7 @@ attack_zoo = {
     'l2s': ('.model_related.l2s', 'L2S'),
     'll2s': ('.model_related.ll2s', 'LL2S'),
     'llp2s': ('.model_related.llp2s', 'LLP2S'),
+    'ishuffle': ('.model_related.ishuffle', 'IShuffleAttack'),
     
     # ensemble
     'ens': ('.ensemble.ens', 'ENS'),
