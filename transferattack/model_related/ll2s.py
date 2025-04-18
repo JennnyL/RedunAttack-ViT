@@ -383,6 +383,7 @@ def forward_features(self, x):
 
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
+        print("catting tokens")
     else:
         x = x
 
@@ -401,6 +402,7 @@ def forward_Swin_features(self, x):
     x = self.patch_embed(x)
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
+        print("catting swin tokens")
     else:
         x = x
     x = self.layers(x)
@@ -414,6 +416,7 @@ def forward_PiT_features(self, x):
 
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
+        print("catting pit tokens")
     else:
         x = x
 
@@ -512,16 +515,28 @@ class LL2S(Attack):
         else:
             self.model = self.wrap_forward_features(self.model)
 
+        assert os.environ.get("NUM_ROBUST_TOKENS", None) is not None
+        self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
+        assert os.environ.get("ROBUST_TOKENS_TYPE", None) is not None
+        self.robust_tokens_type = os.environ.get("ROBUST_TOKENS_TYPE", None)
+        assert self.robust_tokens_type in ["dynamic", "global"]
+        self.prompt_learning_alpha = (
+            1e-2  # learning rate for updating dynamic robust tokens
+        )
+        self.dynamic_robust_epoch = 1
+
     def init_robust_delta(self, N):
         # delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
-        delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
+        # delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
+        delta = torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
         delta.requires_grad = True
         return delta
 
     def update_robust_delta(self, delta, grad, **kwargs):
         # grad_norm = torch.norm(grad.view(grad.size(0), -1), dim=1, keepdim=True)
         # scaled_grad = grad # / (grad_norm + 1e-20)
-        delta = delta - grad * self.prompt_learning_alpha
+        delta = delta - grad.sign() * self.prompt_learning_alpha
+        # delta = delta - grad * self.prompt_learning_alpha
         # import pdb;pdb.set_trace()
         return delta.detach().requires_grad_(True)
 
@@ -708,18 +723,22 @@ class LL2S(Attack):
         k_rest = {}
         v_rest = {}
 
-        tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
-        robust_tokens = (
-            torch.load(tensor_filepath)
-            .to(self.device)
-            .unsqueeze(0)
-            .repeat([data.shape[0], 1, 1])
-        )
+        if self.robust_tokens_type == "global":
+            tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
+            robust_tokens = (
+                torch.load(tensor_filepath)
+                .to(self.device)
+                .unsqueeze(0)
+                .repeat([data.shape[0], 1, 1])
+                .clone()
+            )
+        else:
+            momentum_robust = 0.0
+            robust_tokens = self.init_robust_delta(len(data)).to(self.device)
         global opt_tokens
 
-        opt_tokens = robust_tokens.clone().detach()
-
         for e in range(self.epoch):
+            opt_tokens = robust_tokens.clone().detach()
             # transform data
             aug_probs = []
             losses = []
@@ -778,6 +797,20 @@ class LL2S(Attack):
             momentum = self.get_momentum(grad, momentum)
             # Update adversarial perturbation
             delta = self.update_delta(delta, data, momentum, self.alpha)
+
+            if self.robust_tokens_type == "dynamic":
+                for _ in range(self.dynamic_robust_epoch):
+                    opt_tokens = robust_tokens
+                    robust_logits = self.get_logits(self.transform(data + delta))
+                    robust_loss = self.get_loss(logits=robust_logits, label=label)
+                    robust_grad = self.get_grad(robust_loss, robust_tokens)
+                    momentum_robust = self.get_robust_momentum(
+                        robust_grad, momentum=momentum_robust
+                    )
+                    robust_tokens = self.update_robsust_delta(
+                        robust_tokens, momentum_robust
+                    )
+                    print("robustifying tokens")
 
         # print(softmax(aug_param))
         # print(aug_param)
