@@ -401,6 +401,9 @@ def forward_features(self, x):
 def forward_Swin_features(self, x):
     x = self.patch_embed(x)
     if opt_tokens is not None:
+        import ipdb
+
+        ipdb.set_trace()
         x = torch.cat([x, opt_tokens], dim=1)
         print("catting swin tokens")
     else:
@@ -415,6 +418,9 @@ def forward_PiT_features(self, x):
     x = self.pos_drop(x + self.pos_embed)
 
     if opt_tokens is not None:
+        import ipdb
+
+        ipdb.set_trace()
         x = torch.cat([x, opt_tokens], dim=1)
         print("catting pit tokens")
     else:
@@ -492,7 +498,7 @@ class LL2S(Attack):
         self.alpha = alpha
         self.epoch = epoch
         self.decay = decay
-        self.num_scale = num_scale
+        self.num_scale = 1
         self.model_name = model_name
 
         if "swin" in model_name:
@@ -510,10 +516,13 @@ class LL2S(Attack):
 
         if "swin" in model_name:
             self.model = self.wrap_forward_swin_features(self.model)
+            self.token_dim = 768
         elif "pit" in model_name:
             self.model = self.wrap_forward_PiT_features(self.model)
+            self.token_dim = 768
         else:
             self.model = self.wrap_forward_features(self.model)
+            self.token_dim = 768
 
         assert os.environ.get("NUM_ROBUST_TOKENS", None) is not None
         self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
@@ -601,6 +610,9 @@ class LL2S(Attack):
         The loss calculation, which should be overrideen when the attack change the loss calculation (e.g., ATA, etc.)
         """
         # Calculate the loss
+        import ipdb
+
+        ipdb.set_trace()
         return (
             -self.loss(logits, label.repeat(num_copy))
             if self.targeted
@@ -705,7 +717,7 @@ class LL2S(Attack):
             assert len(label) == 2
             label = label[1]  # the second element is the targeted label tensor
         aug_length = len(op_list)
-        ops_num = 2
+        ops_num = 1
         learning_rate = 0.01
         # self.num_scale = 10
         aug_param = torch.nn.Parameter(
@@ -802,12 +814,14 @@ class LL2S(Attack):
                 for _ in range(self.dynamic_robust_epoch):
                     opt_tokens = robust_tokens
                     robust_logits = self.get_logits(self.transform(data + delta))
-                    robust_loss = self.get_loss(logits=robust_logits, label=label)
+                    robust_loss = self.get_loss(
+                        logits=robust_logits, label=label, num_copy=1
+                    )
                     robust_grad = self.get_grad(robust_loss, robust_tokens)
                     momentum_robust = self.get_robust_momentum(
                         robust_grad, momentum=momentum_robust
                     )
-                    robust_tokens = self.update_robsust_delta(
+                    robust_tokens = self.update_robust_delta(
                         robust_tokens, momentum_robust
                     )
                     print("robustifying tokens")
