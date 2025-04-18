@@ -2,3 +2,4 @@ data/*
 adv_data/*
 results_eval.txt
 results/*
+*.pyc
