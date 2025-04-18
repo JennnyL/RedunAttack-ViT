@@ -498,7 +498,7 @@ class LL2S(Attack):
         self.alpha = alpha
         self.epoch = epoch
         self.decay = decay
-        self.num_scale = 1
+        self.num_scale = 10
         self.model_name = model_name
 
         if "swin" in model_name:
@@ -677,7 +677,7 @@ class LL2S(Attack):
 
     def wrap_swin_attention(self, model, selected_op_idx_list):
         for layer_idx in range(self.num_layers):
-            selected_op = op_list[selected_op_idx_list[layer_idx]]
+            selected_op = swin_list[selected_op_idx_list[layer_idx]]
             if selected_op in [Wrapper_SwinFFN_forward_MoE_Attack]:
                 self.ffn_modules[layer_idx][1].forward = selected_op.__get__(
                     self.ffn_modules[layer_idx][1]
@@ -717,7 +717,7 @@ class LL2S(Attack):
             assert len(label) == 2
             label = label[1]  # the second element is the targeted label tensor
         aug_length = len(op_list)
-        ops_num = 1
+        ops_num = 2
         learning_rate = 0.01
         # self.num_scale = 10
         aug_param = torch.nn.Parameter(
