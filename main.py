@@ -73,6 +73,11 @@ def main():
             res += f' {asr:.1f} |'
 
         print(res)
+        # append model and attack name
+        
+        res += f' {args.attack} |'
+        res += f' {args.model} |'
+        
         with open('results_eval.txt', 'a') as f:
             f.write(args.output_dir + res + '\n')
                 
