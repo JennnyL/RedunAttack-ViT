@@ -13,7 +13,17 @@ import copy
 import pdb
 
 
-from timm.models.vision_transformer import Attention, Mlp, Block, VisionTransformer
+from timm.models.vision_transformer import (
+    Attention,
+    Mlp,
+    Block,
+    VisionTransformer,
+)
+
+from timm.models import (
+    PoolingVisionTransformer,
+)
+
 
 from timm.models.swin_transformer import WindowAttention, SwinTransformer
 from timm.models.swin_transformer import Mlp as SwinFFN
@@ -24,14 +34,6 @@ import torch.nn.functional as F
 from torch.jit import Final
 from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union, List
 
-
-from timm.models.vision_transformer import (
-    Attention,
-    Mlp,
-    Block,
-    checkpoint_seq,
-    VisionTransformer,
-)
 
 softmax = torch.nn.Softmax(dim=-1)
 
@@ -419,18 +421,22 @@ def forward_PiT_features(self, x):
     x = self.patch_embed(x)
     x = self.pos_drop(x + self.pos_embed)
 
-    if opt_tokens is not None:
-        import ipdb
+    # import ipdb
 
-        ipdb.set_trace()
-        x = torch.cat([x, opt_tokens], dim=1)
-        print("catting pit tokens")
-    else:
-        x = x
+    # ipdb.set_trace()
 
     cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
     x, cls_tokens = self.transformers((x, cls_tokens))
     cls_tokens = self.norm(cls_tokens)
+
+    # if opt_tokens is not None:
+    #     import ipdb
+
+    #     ipdb.set_trace()
+    #     x = torch.cat([x, opt_tokens], dim=1)
+    #     print("catting pit tokens")
+    # else:
+    #     x = x
     return cls_tokens
 
 
@@ -609,14 +615,13 @@ class LL2S(Attack):
         #
         # model.forward_features = forward_features.__get__(model)
         # return model
-
         for name, module in model.named_modules():
-            if isinstance(module, VisionTransformer):
+            if isinstance(module, PoolingVisionTransformer):
                 # import pdb;pdb.set_trace()
                 module.forward_features = forward_PiT_features.__get__(module)
                 return model
         # import pdb;pdb.set_trace()
-        raise Exception("The model does not contain PiTVisionTransformer module")
+        raise Exception("The model does not contain PoolingVisionTransformer module")
 
     def get_loss(self, logits, label, num_copy):
         """
