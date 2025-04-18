@@ -128,8 +128,6 @@ def main():
                         os.makedirs(new_output_dir)
                     save_images(new_output_dir, images + perturbations.cpu(), filenames)
             else:
-                if batch_idx >= 1000:
-                    break
                 if args.attack == "learn":
                     perturbations = attacker(
                         images,
@@ -141,8 +139,6 @@ def main():
                     )
                 else:
                     perturbations = attacker(images, labels)
-                if len(dataset) >= 10000:
-                    continue
                 save_images(args.output_dir, images + perturbations.cpu(), filenames)
     else:
         res = "|"
