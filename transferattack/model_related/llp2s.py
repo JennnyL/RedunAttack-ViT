@@ -13,13 +13,12 @@ import copy
 import pdb
 
 
-from timm.models.vision_transformer import Attention,Mlp, Block
+from timm.models.vision_transformer import Attention, Mlp, Block
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.jit import Final
 from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union, List
-
 
 
 from timm.models.vision_transformer import (
@@ -31,13 +30,18 @@ from timm.models.vision_transformer import (
 )
 
 softmax = torch.nn.Softmax(dim=-1)
+
+
 def select_op(op_params, num_ops):
     prob = softmax(op_params)
     try:
         op_ids = torch.multinomial(prob, num_ops, replacement=True).tolist()
     except:
-        import pdb;pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
     return op_ids
+
 
 def trace_prob(op_params, op_ids):
     probs = softmax(op_params)  # shape: (n_layers, n_ops)
@@ -49,26 +53,27 @@ def trace_prob(op_params, op_ids):
     return tp
 
 
-class RWAug_Search: 
+class RWAug_Search:
     def __init__(self, n, idxs):
         self.n = n
-        #idxs is the operation id
-        self.idxs = idxs      
+        # idxs is the operation id
+        self.idxs = idxs
         self.op_list = op_list
-
-
-
 
 
 q_rest = {}
 k_rest = {}
 v_rest = {}
 rest_p = 0.3
-        
+
 
 def Wrapped_Attention_forward_REST_Attack(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
-    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+    qkv = (
+        self.qkv(x)
+        .reshape(B, N, 3, self.num_heads, self.head_dim)
+        .permute(2, 0, 3, 1, 4)
+    )
     q, k, v = qkv.unbind(0)
     named_id = self.named_id
     global q_rest, k_rest, v_rest
@@ -84,11 +89,26 @@ def Wrapped_Attention_forward_REST_Attack(self, x: torch.Tensor) -> torch.Tensor
         global rest_p
         sample_num_tokens = int(rest_p * num_tokens)
         num_heads = q.shape[1]
-        selected_token_ids = [torch.from_numpy(np.random.choice(torch.arange(1,num_tokens), sample_num_tokens,replace=False)) for _ in range(num_heads)]
-        selected_token_ids = torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)
-        batch_indices = torch.arange(B).view(B, 1, 1).expand(-1, num_heads, sample_num_tokens)
-        head_indices = torch.arange(num_heads).view(1, num_heads, 1).expand(B, -1, sample_num_tokens)
-        
+        selected_token_ids = [
+            torch.from_numpy(
+                np.random.choice(
+                    torch.arange(1, num_tokens), sample_num_tokens, replace=False
+                )
+            )
+            for _ in range(num_heads)
+        ]
+        selected_token_ids = (
+            torch.stack(selected_token_ids, dim=0).unsqueeze(0).expand(B, -1, -1)
+        )
+        batch_indices = (
+            torch.arange(B).view(B, 1, 1).expand(-1, num_heads, sample_num_tokens)
+        )
+        head_indices = (
+            torch.arange(num_heads)
+            .view(1, num_heads, 1)
+            .expand(B, -1, sample_num_tokens)
+        )
+
         q_rest[named_id] = q[batch_indices, head_indices, selected_token_ids]
         k_rest[named_id] = k[batch_indices, head_indices, selected_token_ids]
         v_rest[named_id] = v[batch_indices, head_indices, selected_token_ids]
@@ -97,29 +117,31 @@ def Wrapped_Attention_forward_REST_Attack(self, x: torch.Tensor) -> torch.Tensor
     attn = q @ k.transpose(-2, -1)
     attn = attn.softmax(dim=-1)
     attn = self.attn_drop(attn)
-    
+
     x = attn @ v
     if filling:
-        x = x[:, :,:num_tokens]
+        x = x[:, :, :num_tokens]
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
     x = self.proj_drop(x)
     return x
 
 
-
-
 sparse_p = 0.4
+
 
 def Wrapped_Attention_forward_Sparse_Attack(self, x: torch.Tensor) -> torch.Tensor:
     global sparse_p
     B, N, C = x.shape
-    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+    qkv = (
+        self.qkv(x)
+        .reshape(B, N, 3, self.num_heads, self.head_dim)
+        .permute(2, 0, 3, 1, 4)
+    )
     q, k, v = qkv.unbind(0)
     q, k = self.q_norm(q), self.k_norm(k)
     # import pdb;pdb.set_trace()
-    
-    
+
     q = q * self.scale
     attn = q @ k.transpose(-2, -1)
     attn = attn.softmax(dim=-1)
@@ -134,8 +156,9 @@ def Wrapped_Attention_forward_Sparse_Attack(self, x: torch.Tensor) -> torch.Tens
     return x
 
 
-shuffle_head_prob  = 0.5
+shuffle_head_prob = 0.5
 shuffle_head_ratio = 0.45
+
 
 def Wrapped_Attention_forward_Shuffle_Attack(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
@@ -151,8 +174,7 @@ def Wrapped_Attention_forward_Shuffle_Attack(self, x: torch.Tensor) -> torch.Ten
     attn = q @ k.transpose(-2, -1)
     attn = attn.softmax(dim=-1)
     attn = self.attn_drop(attn)
-    
-    
+
     if torch.rand(1) < shuffle_head_prob:
         # random shuffle the attention weights of different heads, along the second dimension
         num_heads = attn.shape[1]
@@ -162,8 +184,6 @@ def Wrapped_Attention_forward_Shuffle_Attack(self, x: torch.Tensor) -> torch.Ten
         copy_attn = attn.clone()
         copy_attn[:, head_indices, :] = attn[:, ordered_head_indices, :]
         attn = copy_attn.clone()
-        
-        
 
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
@@ -172,25 +192,25 @@ def Wrapped_Attention_forward_Shuffle_Attack(self, x: torch.Tensor) -> torch.Ten
     return x
 
 
-moe_N = 5    
+moe_N = 5
 moe_prob = 0.3
-    
+
+
 def Wrapper_FFN_forward_MoE_Attack(self, input):
-    output = 0.
+    output = 0.0
     global moe_N
     global moe_prob
-    current_N = np.random.randint(2, moe_N+1)
+    current_N = np.random.randint(2, moe_N + 1)
     for n in range(current_N):
         x = self.fc1(input)
         x = self.act(x)
-        x = x * (torch.rand_like(x)>moe_prob).float()
+        x = x * (torch.rand_like(x) > moe_prob).float()
         # x = self.drop1(x)
         x = self.fc2(x)
         # x = self.drop2(x)
         output += x
     output = output / current_N
     return output
-
 
 
 opt_tokens = None
@@ -224,13 +244,14 @@ def forward_features(self, x):
     return x
 
 
-
-        
-op_list = [Wrapped_Attention_forward_REST_Attack, Wrapped_Attention_forward_Sparse_Attack, 
-           Wrapped_Attention_forward_Shuffle_Attack, Wrapper_FFN_forward_MoE_Attack] 
+op_list = [
+    Wrapped_Attention_forward_REST_Attack,
+    Wrapped_Attention_forward_Sparse_Attack,
+    Wrapped_Attention_forward_Shuffle_Attack,
+    Wrapper_FFN_forward_MoE_Attack,
+]
 
 # op_list = [Wrapped_Attention_forward_Sparse_Attack,Wrapped_Attention_forward_Sparse_Attack,Wrapped_Attention_forward_Sparse_Attack]
-
 
 
 class LLP2S(Attack):
@@ -250,7 +271,7 @@ class LLP2S(Attack):
         norm (str): the norm of perturbation, l2/linfty.
         loss (str): the loss function.
         device (torch.device): the device for data. If it is None, the device would be same as model
-    
+
     Official arguments:
         epsilon=16/255, alpha=epsilon/epoch=1.6/255, epoch=10, decay=1, num_scale=3
 
@@ -258,26 +279,42 @@ class LLP2S(Attack):
         python main.py --input_dir ./path/to/data --output_dir adv_data/l2t/resnet18 --attack l2t --model=resnet18 --batchsize 2
         python main.py --input_dir ./path/to/data --output_dir adv_data/l2t/resnet18 --eval
     """
-    def __init__(self, model_name, epsilon=16/255, alpha=1.6/255, epoch=10, decay=1., num_scale=5,
-                 targeted=False, random_start=False, norm='linfty', loss='crossentropy', device=None, attack='L2T', **kwargs):
-        super().__init__(attack, model_name, epsilon, targeted, random_start, norm, loss, device)
+
+    def __init__(
+        self,
+        model_name,
+        epsilon=16 / 255,
+        alpha=1.6 / 255,
+        epoch=10,
+        decay=1.0,
+        num_scale=5,
+        targeted=False,
+        random_start=False,
+        norm="linfty",
+        loss="crossentropy",
+        device=None,
+        attack="L2T",
+        **kwargs,
+    ):
+        super().__init__(
+            attack, model_name, epsilon, targeted, random_start, norm, loss, device
+        )
         self.alpha = alpha
         self.epoch = epoch
         self.decay = decay
         self.num_scale = num_scale
-        
+
         attention_modules, ffn_modules = self.enumerate_module(self.model)
         self.attention_modules = attention_modules
         self.ffn_modules = ffn_modules
         self.num_attention = len(attention_modules)
         self.num_ffn = len(ffn_modules)
-        assert self.num_attention==self.num_ffn, "The number of attention modules and ffn modules should be the same"
+        assert (
+            self.num_attention == self.num_ffn
+        ), "The number of attention modules and ffn modules should be the same"
         self.num_layers = self.num_attention
         self.model = self.wrap_forward_features(self.model)
-        
-        
-        
-    
+
     def init_robust_delta(self, N):
         # delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
         delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
@@ -313,27 +350,30 @@ class LLP2S(Attack):
                 return model
         # import pdb;pdb.set_trace()
         raise Exception("The model does not contain VisionTransformer module")
-        
 
     def get_loss(self, logits, label, num_copy):
         """
         The loss calculation, which should be overrideen when the attack change the loss calculation (e.g., ATA, etc.)
         """
         # Calculate the loss
-        return - self.loss(logits, label.repeat(num_copy)) if self.targeted else self.loss(logits, label.repeat(num_copy))
+        return (
+            -self.loss(logits, label.repeat(num_copy))
+            if self.targeted
+            else self.loss(logits, label.repeat(num_copy))
+        )
 
     def get_grad(self, loss, delta, **kwargs):
         """
         The gradient calculation, which should be overridden when the attack need to tune the gradient (e.g., TIM, variance tuning, enhanced momentum, etc.)
         """
-        return torch.autograd.grad(loss, delta, retain_graph=False, create_graph=False)[0]
-    
-    
-    
+        return torch.autograd.grad(loss, delta, retain_graph=False, create_graph=False)[
+            0
+        ]
+
     def enumerate_module(self, model):
         ffn_modules = []
         attention_modules = []
-        
+
         for name, module in model.named_modules():
             if isinstance(module, Attention):
                 module.original_forward = module.forward
@@ -344,29 +384,36 @@ class LLP2S(Attack):
                 module.named_id = 0
                 ffn_modules.append((name, module))
         return attention_modules, ffn_modules
-                
-    
-    
-    
+
     def wrap_attention(self, model, selected_op_idx_list):
         for layer_idx in range(self.num_layers):
             selected_op = op_list[selected_op_idx_list[layer_idx]]
             if selected_op in [Wrapper_FFN_forward_MoE_Attack]:
-                self.ffn_modules[layer_idx][1].forward = selected_op.__get__(self.ffn_modules[layer_idx][1])
-            elif selected_op in [Wrapped_Attention_forward_REST_Attack, Wrapped_Attention_forward_Sparse_Attack, Wrapped_Attention_forward_Shuffle_Attack]:
-                self.attention_modules[layer_idx][1].forward = selected_op.__get__(self.attention_modules[layer_idx][1])
+                self.ffn_modules[layer_idx][1].forward = selected_op.__get__(
+                    self.ffn_modules[layer_idx][1]
+                )
+            elif selected_op in [
+                Wrapped_Attention_forward_REST_Attack,
+                Wrapped_Attention_forward_Sparse_Attack,
+                Wrapped_Attention_forward_Shuffle_Attack,
+            ]:
+                self.attention_modules[layer_idx][1].forward = selected_op.__get__(
+                    self.attention_modules[layer_idx][1]
+                )
             else:
                 raise ValueError(f"Unsupported operation: {selected_op}")
-    
+
     def cleanup(self):
         """
         Clean up the model after the attack
         """
         for layer_idx in range(self.num_layers):
-            self.attention_modules[layer_idx][1].forward = self.attention_modules[layer_idx][1].original_forward
-            self.ffn_modules[layer_idx][1].forward = self.ffn_modules[layer_idx][1].original_forward  
-                
-
+            self.attention_modules[layer_idx][1].forward = self.attention_modules[
+                layer_idx
+            ][1].original_forward
+            self.ffn_modules[layer_idx][1].forward = self.ffn_modules[layer_idx][
+                1
+            ].original_forward
 
     def forward(self, data, label, **kwargs):
         """
@@ -378,32 +425,30 @@ class LLP2S(Attack):
         """
         if self.targeted:
             assert len(label) == 2
-            label = label[1] # the second element is the targeted label tensor
+            label = label[1]  # the second element is the targeted label tensor
         aug_length = len(op_list)
         ops_num = 2
         learning_rate = 1e-3
-        #self.num_scale = 10
-        aug_param = torch.nn.Parameter(torch.zeros(self.num_layers, aug_length,requires_grad=True),requires_grad=True)  
-        
+        # self.num_scale = 10
+        aug_param = torch.nn.Parameter(
+            torch.zeros(self.num_layers, aug_length, requires_grad=True),
+            requires_grad=True,
+        )
+
         old_aug_param = None
-            
+
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
         # Initialize adversarial perturbation
         delta = self.init_delta(data)
         momentum = 0
-        
-        
+
         global q_rest, k_rest, v_rest
         q_rest = {}
         k_rest = {}
         v_rest = {}
-        
-        
-        
-        tensor_filepath = (
-            "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
-        )
+
+        tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
         robust_tokens = (
             torch.load(tensor_filepath)
             .to(self.device)
@@ -411,77 +456,78 @@ class LLP2S(Attack):
             .repeat([data.shape[0], 1, 1])
         )
         global opt_tokens
-        
+
         opt_tokens = robust_tokens.clone().detach()
-        
-        
-        
+
         for e in range(self.epoch):
             # transform data
             aug_probs = []
             losses = []
-            
+
             for i in range(self.num_scale):
-                rw_search = RWAug_Search(ops_num, [0,0])
-                
+                rw_search = RWAug_Search(ops_num, [0, 0])
+
                 augtype = (ops_num, np.array(select_op(aug_param, ops_num)))
-                prob = 1.
+                prob = 1.0
                 for ops_index in range(ops_num):
                     # import pdb;pdb.set_trace()
-                    aug_prob = trace_prob(aug_param, augtype[1][:,ops_index])
+                    aug_prob = trace_prob(aug_param, augtype[1][:, ops_index])
                     # prob *= aug_prob
                     # import pdb;pdb.set_trace()
-                    
+
                     if old_aug_param is not None:
-                        old_aug_prob = trace_prob(old_aug_param, augtype[1][:,ops_index])
+                        old_aug_prob = trace_prob(
+                            old_aug_param, augtype[1][:, ops_index]
+                        )
                         aug_prob = old_aug_prob.detach() - aug_prob
-                    
+
                     aug_probs.append(aug_prob)
                 # aug_prob = prob
                 rw_search.n = augtype[0]
                 rw_search.idxs = augtype[1]
-                
+
                 # print(rw_search.idxs)
-                
+
                 # aug_probs.append(aug_prob)
                 # mean_logits = 0.
                 for ops_index in range(ops_num):
-                    selected_ops = rw_search.idxs[:,ops_index]
+                    selected_ops = rw_search.idxs[:, ops_index]
                     self.cleanup()
                     self.wrap_attention(self.model, selected_ops)
-                    logits = self.get_logits(self.transform(data+delta))
+                    logits = self.get_logits(self.transform(data + delta))
                     # mean_logits += logits
                     # mean_logits = mean_logits/ops_num
                     # logits = mean_logits
-                    losses.append(self.get_loss(logits, label, math.floor((len(logits)+0.01)/len(label))).reshape(1))
-                    
-                
-                
+                    losses.append(
+                        self.get_loss(
+                            logits, label, math.floor((len(logits) + 0.01) / len(label))
+                        ).reshape(1)
+                    )
+
             # Calculate the loss
-            loss = torch.sum(torch.cat(losses))/self.num_scale
-            
-            
+            loss = torch.sum(torch.cat(losses)) / self.num_scale
+
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
-            
-            aug_losses = torch.cat([aug_probs[i]*losses[i].reshape(1) for i in range(len(losses))])
-            aug_loss = torch.sum(aug_losses)/len(losses)
-            
-            
-            aug_grad = torch.autograd.grad(aug_loss, aug_param, retain_graph=False, create_graph=False)[0]
+
+            aug_losses = torch.cat(
+                [aug_probs[i] * losses[i].reshape(1) for i in range(len(losses))]
+            )
+            aug_loss = torch.sum(aug_losses) / len(losses)
+
+            aug_grad = torch.autograd.grad(
+                aug_loss, aug_param, retain_graph=False, create_graph=False
+            )[0]
             # import pdb;pdb.set_trace()
             old_aug_param = aug_param.clone().detach()
-            
+
             aug_param = aug_param + learning_rate * aug_grad
-            
-            
-            
+
             # Calculate the momentum
             momentum = self.get_momentum(grad, momentum)
             # Update adversarial perturbation
-            delta = self.update_delta(delta, data, momentum, self.alpha)   
-            
-            
-        #print(softmax(aug_param))
-        #print(aug_param)
+            delta = self.update_delta(delta, data, momentum, self.alpha)
+
+        # print(softmax(aug_param))
+        # print(aug_param)
         return delta.detach()
