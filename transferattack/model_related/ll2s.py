@@ -383,7 +383,6 @@ def forward_features(self, x):
 
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
-        print("catting tokens")
     else:
         x = x
 
@@ -401,10 +400,13 @@ def forward_features(self, x):
 def forward_Swin_features(self, x):
     x = self.patch_embed(x)
     if opt_tokens is not None:
-        import ipdb
-
-        ipdb.set_trace()
         x = torch.cat([x, opt_tokens], dim=1)
+        # import ipdb
+
+        # ipdb.set_trace()
+        # x = torch.cat([x, torch.randn((len(x), 20, 56, 96))], dim=1)
+        # x = torch.cat([x, torch.randn((len(x), 76, 20, 96))], dim=2)
+        # ipdb.set_trace()
         print("catting swin tokens")
     else:
         x = x
@@ -516,7 +518,7 @@ class LL2S(Attack):
 
         if "swin" in model_name:
             self.model = self.wrap_forward_swin_features(self.model)
-            self.token_dim = 768
+            self.token_dim = 96
         elif "pit" in model_name:
             self.model = self.wrap_forward_PiT_features(self.model)
             self.token_dim = 768
@@ -524,6 +526,7 @@ class LL2S(Attack):
             self.model = self.wrap_forward_features(self.model)
             self.token_dim = 768
 
+        self._model_name_ = model_name
         assert os.environ.get("NUM_ROBUST_TOKENS", None) is not None
         self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
         assert os.environ.get("ROBUST_TOKENS_TYPE", None) is not None
@@ -537,7 +540,17 @@ class LL2S(Attack):
     def init_robust_delta(self, N):
         # delta = torch.rand(self.num_tokens, self.num_patches).to(self.device)
         # delta = torch.zeros(N, self.num_tokens, self.token_dim).to(self.device)
-        delta = torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
+        if "swin" in self._model_name_:
+            s = int(np.sqrt(self.num_tokens))
+            delta = torch.randn((N, s, s, self.token_dim)).to(self.device) * 10
+        elif "pit" in self._model_name_:
+            delta = (
+                torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
+            )
+        else:
+            delta = (
+                torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
+            )
         delta.requires_grad = True
         return delta
 
@@ -610,9 +623,6 @@ class LL2S(Attack):
         The loss calculation, which should be overrideen when the attack change the loss calculation (e.g., ATA, etc.)
         """
         # Calculate the loss
-        import ipdb
-
-        ipdb.set_trace()
         return (
             -self.loss(logits, label.repeat(num_copy))
             if self.targeted
@@ -824,7 +834,6 @@ class LL2S(Attack):
                     robust_tokens = self.update_robust_delta(
                         robust_tokens, momentum_robust
                     )
-                    print("robustifying tokens")
 
         # print(softmax(aug_param))
         # print(aug_param)
