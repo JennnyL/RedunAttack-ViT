@@ -386,6 +386,7 @@ def forward_features(self, x):
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
     else:
+        print("no robust tokens")
         x = x
 
     x = self.norm_pre(x)
@@ -537,7 +538,7 @@ class LL2S(Attack):
         self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
         assert os.environ.get("ROBUST_TOKENS_TYPE", None) is not None
         self.robust_tokens_type = os.environ.get("ROBUST_TOKENS_TYPE", None)
-        assert self.robust_tokens_type in ["dynamic", "global"]
+        assert self.robust_tokens_type in ["dynamic", "global", "none"]
         self.prompt_learning_alpha = (
             1e-2  # learning rate for updating dynamic robust tokens
         )
@@ -759,13 +760,18 @@ class LL2S(Attack):
                 .repeat([data.shape[0], 1, 1])
                 .clone()
             )
-        else:
+        elif self.robust_tokens_type == "dynamic":
             momentum_robust = 0.0
             robust_tokens = self.init_robust_delta(len(data)).to(self.device)
+        else:
+            assert self.robust_tokens_type == "none"
+            robust_tokens = None
         global opt_tokens
 
         for e in range(self.epoch):
-            opt_tokens = robust_tokens.clone().detach()
+            opt_tokens = (
+                robust_tokens.clone().detach() if robust_tokens is not None else None
+            )
             # transform data
             aug_probs = []
             losses = []
