@@ -67,6 +67,7 @@ rest_p = 0.3
 
 
 def Wrapped_Attention_forward_REST_Attack(self, x: torch.Tensor) -> torch.Tensor:
+    # print("debug info, should not into this func")
     B, N, C = x.shape
     qkv = (
         self.qkv(x)
@@ -386,30 +387,27 @@ def forward_features(self, x):
     if opt_tokens is not None:
         x = torch.cat([x, opt_tokens], dim=1)
     else:
-        print("no robust tokens")
         x = x
 
     x = self.norm_pre(x)
     x = self.blocks(x)
     x = self.norm(x)
-    # print("-"*50)
-    # print(x.shape,opt_tokens.shape)
-
-    # print(x.shape)
-    # print("-"*50)
     return x
 
 
 def forward_Swin_features(self, x):
     x = self.patch_embed(x)
     if opt_tokens is not None:
-        x = torch.cat([x, opt_tokens], dim=1)
+        import ipdb
+
+        ipdb.set_trace()
+
+        # x = torch.cat([x, opt_tokens], dim=1)
         # import ipdb
 
         # ipdb.set_trace()
-        # x = torch.cat([x, torch.randn((len(x), 20, 56, 96))], dim=1)
-        # x = torch.cat([x, torch.randn((len(x), 76, 20, 96))], dim=2)
-        # ipdb.set_trace()
+        x = torch.cat([x, torch.randn((len(x), 20, 56, 96), device=x.device)], dim=1)
+        x = torch.cat([x, torch.randn((len(x), 76, 20, 96), device=x.device)], dim=2)
         print("catting swin tokens")
     else:
         x = x
@@ -427,17 +425,24 @@ def forward_PiT_features(self, x):
     # ipdb.set_trace()
 
     cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
+    if opt_tokens is not None:
+        mat_size = x.shape[2]
+        x = torch.cat(
+            [
+                x,
+                opt_tokens[:, :, :mat_size, :],
+            ],
+            dim=-1,
+        )
+        x = torch.cat(
+            [x, opt_tokens[:, :, mat_size:, :].permute(0, 1, 3, 2)],
+            dim=-2,
+        )
+    else:
+        x = x
     x, cls_tokens = self.transformers((x, cls_tokens))
     cls_tokens = self.norm(cls_tokens)
 
-    # if opt_tokens is not None:
-    #     import ipdb
-
-    #     ipdb.set_trace()
-    #     x = torch.cat([x, opt_tokens], dim=1)
-    #     print("catting pit tokens")
-    # else:
-    #     x = x
     return cls_tokens
 
 
@@ -528,7 +533,12 @@ class LL2S(Attack):
             self.token_dim = 96
         elif "pit" in model_name:
             self.model = self.wrap_forward_PiT_features(self.model)
-            self.token_dim = 768
+            self.token_dim = 256
+            # m_size = 31
+            # margin_size = int(
+            #     (-2 * m_size + np.sqrt(2 * m_size * 2 * m_size + 4 * self.num_tokens))
+            #     / 2
+            # )
         else:
             self.model = self.wrap_forward_features(self.model)
             self.token_dim = 768
@@ -550,23 +560,29 @@ class LL2S(Attack):
         if "swin" in self._model_name_:
             s = int(np.sqrt(self.num_tokens))
             delta = torch.randn((N, s, s, self.token_dim)).to(self.device) * 10
+            delta.requires_grad = True
         elif "pit" in self._model_name_:
-            delta = (
-                torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
+            m_size = 31
+            margin_size = int(
+                (-2 * m_size + np.sqrt(2 * m_size * 2 * m_size + 4 * self.num_tokens))
+                / 2
             )
+            delta = (
+                torch.randn(
+                    (N, self.token_dim, m_size + m_size + margin_size, margin_size)
+                ).to(self.device)
+                * 10
+            )
+            delta.requires_grad = True
         else:
             delta = (
                 torch.randn((N, self.num_tokens, self.token_dim)).to(self.device) * 10
             )
-        delta.requires_grad = True
+            delta.requires_grad = True
         return delta
 
     def update_robust_delta(self, delta, grad, **kwargs):
-        # grad_norm = torch.norm(grad.view(grad.size(0), -1), dim=1, keepdim=True)
-        # scaled_grad = grad # / (grad_norm + 1e-20)
         delta = delta - grad.sign() * self.prompt_learning_alpha
-        # delta = delta - grad * self.prompt_learning_alpha
-        # import pdb;pdb.set_trace()
         return delta.detach().requires_grad_(True)
 
     def get_robust_momentum(self, grad, momentum, **kwargs):
@@ -799,7 +815,7 @@ class LL2S(Attack):
                     self.cleanup()
                     if "swin" in self.model_name:
                         self.wrap_swin_attention(self.model, selected_ops)
-                    else:
+                    elif "pit" not in self.model_name:
                         self.wrap_attention(self.model, selected_ops)
                     logits = self.get_logits(self.transform(data + delta))
                     # mean_logits += logits

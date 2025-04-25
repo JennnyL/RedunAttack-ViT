@@ -67,10 +67,6 @@ def get_parser():
     )
     parser.add_argument("--targeted", action="store_true", help="targeted attack")
     parser.add_argument("--GPU_ID", default="0", type=str)
-    parser.add_argument("--num_tokens", default=10, type=int, help="for learn attack")
-    parser.add_argument(
-        "--num_tokens_use_ratio", default=1, type=float, help="for learn attack"
-    )
     parser.add_argument(
         "--load_tokens",
         action="store_true",
@@ -110,8 +106,6 @@ def main():
                 model_name=args.model,
                 targeted=args.targeted,
                 epoch=args.epoch,
-                num_tokens=args.num_tokens,
-                num_tokens_use_ratio=args.num_tokens_use_ratio,
             )
         else:
             attacker = transferattack.load_attack_class(args.attack)(
@@ -176,14 +170,14 @@ def main():
 
         print(res)
         # append model and attack name
-        
-        res += f' {args.attack} |'
-        res += f' {args.model} |'
-        
-        with open('results_eval.txt', 'a') as f:
-            f.write(args.output_dir + res + '\n')
-                
-                
+
+        res += f" {args.attack} |"
+        res += f" {args.model} |"
+
+        with open("results_eval.txt", "a") as f:
+            f.write(args.output_dir + res + "\n")
+
+
 def eval(model, dataloader, is_targeted):
     correct, total = 0, 0
     for images, labels, _ in dataloader:
