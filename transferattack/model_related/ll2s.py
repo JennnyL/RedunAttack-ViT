@@ -53,11 +53,34 @@ def trace_prob(op_params, op_ids):
 
 
 class RWAug_Search:
-    def __init__(self, n, idxs):
+    def __init__(self, n, idxs, l):
         self.n = n
         # idxs is the operation id
         self.idxs = idxs
-        self.op_list = op_list
+        self.op_list = l
+
+
+HYPER_PARAM_TYPE = os.environ.get("HYPER_PARAM_TYPE")
+assert HYPER_PARAM_TYPE is not None and HYPER_PARAM_TYPE.lower() in [
+    "vit",
+    "pit",
+    "swin",
+]
+HYPER_PARAM_TYPE = HYPER_PARAM_TYPE.lower()
+
+sparse_p_map = {
+    "vit": 0.4,
+    "pit": 0.5,
+    "swin": 0.4,
+}
+
+shuffle_head_prob_ratio_map = {
+    "vit": (0.5, 0.45),  # (shuffle_head_prob, shuffle_head_ratio)
+    "pit": (0.6, 0.8),
+    "swin": (0.5, 0.45),
+}
+
+moe_param_map = {"vit": (5, 0.3), "pit": (5, 0.5), "swin": (5, 0.3)}  # (N, prob)
 
 
 q_rest = {}
@@ -200,7 +223,7 @@ def Wrapped_WindowAttention_forward_REST_Attack(
     return x
 
 
-sparse_p = 0.4
+sparse_p = sparse_p_map[HYPER_PARAM_TYPE]
 
 
 def Wrapped_Attention_forward_Sparse_Attack(self, x: torch.Tensor) -> torch.Tensor:
@@ -262,8 +285,7 @@ def Wrapped_WindowAttention_forward_Sparse_Attack(
     return x
 
 
-shuffle_head_prob = 0.5
-shuffle_head_ratio = 0.45
+shuffle_head_prob, shuffle_head_ratio = shuffle_head_prob_ratio_map[HYPER_PARAM_TYPE]
 
 
 def Wrapped_Attention_forward_Shuffle_Attack(self, x: torch.Tensor) -> torch.Tensor:
@@ -338,8 +360,7 @@ def Wrapped_WindowAttention_forward_Shuffle_Attack(
     return x
 
 
-moe_N = 5
-moe_prob = 0.3
+moe_N, moe_prob = moe_param_map[HYPER_PARAM_TYPE]
 
 
 def Wrapper_FFN_forward_MoE_Attack(self, input):
@@ -453,6 +474,12 @@ op_list = [
     Wrapper_FFN_forward_MoE_Attack,
 ]
 
+pit_list = [
+    Wrapped_Attention_forward_Sparse_Attack,
+    Wrapped_Attention_forward_Shuffle_Attack,
+    Wrapper_FFN_forward_MoE_Attack,
+]
+
 
 swin_list = [
     Wrapped_WindowAttention_forward_REST_Attack,
@@ -514,6 +541,10 @@ class LL2S(Attack):
         self.decay = decay
         self.num_scale = 10
         self.model_name = model_name
+
+        assert (
+            HYPER_PARAM_TYPE in model_name
+        ), "the HYPER_PARAM_TYPE is not for the model, make sure u are using the right HYPER_PARAM_TYPE"
 
         if "swin" in model_name:
             attention_modules, ffn_modules = self.enumerate_swin_module(self.model)
@@ -707,6 +738,23 @@ class LL2S(Attack):
             else:
                 raise ValueError(f"Unsupported operation: {selected_op}")
 
+    def wrap_pit_attention(self, model, selected_op_idx_list):
+        for layer_idx in range(self.num_layers):
+            selected_op = pit_list[selected_op_idx_list[layer_idx]]
+            if selected_op in [Wrapper_FFN_forward_MoE_Attack]:
+                self.ffn_modules[layer_idx][1].forward = selected_op.__get__(
+                    self.ffn_modules[layer_idx][1]
+                )
+            elif selected_op in [
+                Wrapped_Attention_forward_Sparse_Attack,
+                Wrapped_Attention_forward_Shuffle_Attack,
+            ]:
+                self.attention_modules[layer_idx][1].forward = selected_op.__get__(
+                    self.attention_modules[layer_idx][1]
+                )
+            else:
+                raise ValueError(f"Unsupported operation: {selected_op}")
+
     def wrap_swin_attention(self, model, selected_op_idx_list):
         for layer_idx in range(self.num_layers):
             selected_op = swin_list[selected_op_idx_list[layer_idx]]
@@ -748,7 +796,14 @@ class LL2S(Attack):
         if self.targeted:
             assert len(label) == 2
             label = label[1]  # the second element is the targeted label tensor
-        aug_length = len(op_list)
+
+        model_op_list = op_list
+        if "swin" in self.model_name:
+            model_op_list = swin_list
+        elif "pit" in self.model_name:
+            model_op_list = pit_list
+        aug_length = len(model_op_list)
+
         ops_num = 2
         learning_rate = 0.01
         # self.num_scale = 10
@@ -793,10 +848,9 @@ class LL2S(Attack):
             losses = []
 
             for i in range(self.num_scale):
-                rw_search = RWAug_Search(ops_num, [0, 0])
+                rw_search = RWAug_Search(ops_num, [0, 0], model_op_list)
 
                 augtype = (ops_num, np.array(select_op(aug_param, ops_num)))
-                prob = 1.0
                 for ops_index in range(ops_num):
                     # import pdb;pdb.set_trace()
                     aug_prob = trace_prob(aug_param, augtype[1][:, ops_index])
@@ -815,7 +869,9 @@ class LL2S(Attack):
                     self.cleanup()
                     if "swin" in self.model_name:
                         self.wrap_swin_attention(self.model, selected_ops)
-                    elif "pit" not in self.model_name:
+                    elif "pit" in self.model_name:
+                        self.wrap_pit_attention(self.model, selected_ops)
+                    else:
                         self.wrap_attention(self.model, selected_ops)
                     logits = self.get_logits(self.transform(data + delta))
                     # mean_logits += logits
