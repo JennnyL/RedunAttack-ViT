@@ -140,12 +140,17 @@ class LearnAttack(Attack):
                 (-2 * m_size + np.sqrt(2 * m_size * 2 * m_size + 4 * self.num_tokens))
                 / 2
             )
-            delta = (
-                torch.randn(
+            if True:
+                delta = (
+                    torch.randn(
+                        (N, self.token_dim, m_size + m_size + margin_size, margin_size)
+                    ).to(self.device)
+                    * 10
+                )
+            else:
+                delta = torch.zeros(
                     (N, self.token_dim, m_size + m_size + margin_size, margin_size)
                 ).to(self.device)
-                * 10
-            )
             delta.requires_grad = True
         else:
             delta = (
@@ -229,19 +234,34 @@ class LearnAttack(Attack):
             # tensor_filepath = f"./data/attack_image_robust_riter1_img50000_ensemble_{self.num_tokens}_tokens_randn_init_all.pt"
             # tensor_filepath = f"./data/attack_image_robust_riter1_img50000_ensemble_{self.num_tokens}_tokens_all.pt"
             # tensor_filepath = "./data/new_dymaic_attack_image_robust_riter1_img1000_ensemble_400/aa_merged.pt"
-            tensor_filepath = f"./data/zero_momentum_riter{1}_img{50000}_ensemble_{self.num_tokens}_new.pt"
-            print(f"successfully loaded {tensor_filepath}")
-            robust_tokens = (
-                torch.load(tensor_filepath)
-                .to(self.device)
-                .unsqueeze(0)
-                .repeat([data.shape[0], 1, 1])
-                .clone()
+            # tensor_filepath = f"./data/zero_momentum_riter{1}_img{50000}_ensemble_{self.num_tokens}_new.pt"
+            tensor_filepath = (
+                "./data/pit_b_224_dynamic_zeros_init_1_img1000_ensemble_400_new.pt"
             )
+            print(f"successfully loaded {tensor_filepath}")
+            if "vit" in self._model_name_:
+                robust_tokens = (
+                    torch.load(tensor_filepath)
+                    .to(self.device)
+                    .unsqueeze(0)
+                    .repeat([data.shape[0], 1, 1])
+                    .clone()
+                )
+            else:
+                robust_tokens = (
+                    torch.load(tensor_filepath)
+                    .to(self.device)
+                    .unsqueeze(0)
+                    .repeat([data.shape[0], 1, 1, 1])
+                    .clone()
+                )
         elif self.robust_tokens_type == "dynamic":
             momentum_robust = 0.0
             robust_tokens = self.init_robust_delta(len(data)).to(self.device)
         elif self.robust_tokens_type == "dynamic_iter":
+            assert (
+                len(data) == 1
+            ), "batch_size should be 1 for dynamic iterative robust tokens"
             momentum_robust = 0.0
             if opt_tokens is None:
                 robust_tokens = self.init_robust_delta(len(data)).to(self.device)
@@ -308,18 +328,17 @@ class LearnAttack(Attack):
         if self.robust_tokens_type in ["dynamic", "dynamic_iter"]:
             tensor_filepath = os.path.join(
                 "./data/",
-                f"{self.robust_tokens_type}_{robust_max_iter}_img{kwargs['total_images_num']}_ensemble_{self.num_tokens}_new.pt",
+                f"{self._model_name_}_{self.robust_tokens_type}_rand_init_{robust_max_iter}_img{kwargs['total_images_num']}_ensemble_{self.num_tokens}_new.pt",
             )
-            r_tokens = robust_tokens.clone().cpu()
+            r_tokens = robust_tokens.clone().detach().cpu()
 
             if self.robust_tokens_type == "dynamic":
+                r_tokens = r_tokens.sum(dim=0) / kwargs["total_images_num"]
                 if os.path.exists(tensor_filepath):
                     tokens = torch.load(tensor_filepath)
-                    tokens += r_tokens.sum(dim=0) / kwargs["total_images_num"]
+                    r_tokens += tokens
 
             torch.save(r_tokens, tensor_filepath)
-
-            print("successfully saved tokens")
 
         return attack_delta.detach()
 
