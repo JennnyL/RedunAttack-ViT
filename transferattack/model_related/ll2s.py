@@ -476,8 +476,8 @@ op_list = [
 
 pit_list = [
     Wrapped_Attention_forward_Sparse_Attack,
-    Wrapped_Attention_forward_Shuffle_Attack,
-    Wrapper_FFN_forward_MoE_Attack,
+    # Wrapped_Attention_forward_Shuffle_Attack,
+    # Wrapper_FFN_forward_MoE_Attack,
 ]
 
 
@@ -559,24 +559,25 @@ class LL2S(Attack):
         ), "The number of attention modules and ffn modules should be the same"
         self.num_layers = self.num_attention
 
+        self._model_name_ = model_name
+        assert os.environ.get("NUM_ROBUST_TOKENS", None) is not None
+        self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
+
         if "swin" in model_name:
             self.model = self.wrap_forward_swin_features(self.model)
             self.token_dim = 96
         elif "pit" in model_name:
             self.model = self.wrap_forward_PiT_features(self.model)
             self.token_dim = 256
-            # m_size = 31
-            # margin_size = int(
-            #     (-2 * m_size + np.sqrt(2 * m_size * 2 * m_size + 4 * self.num_tokens))
-            #     / 2
-            # )
+            m_size = 31
+            self.margin_size = int(
+                (-2 * m_size + np.sqrt(2 * m_size * 2 * m_size + 4 * self.num_tokens))
+                / 2
+            )
         else:
             self.model = self.wrap_forward_features(self.model)
             self.token_dim = 768
 
-        self._model_name_ = model_name
-        assert os.environ.get("NUM_ROBUST_TOKENS", None) is not None
-        self.num_tokens = int(os.environ.get("NUM_ROBUST_TOKENS", None))
         assert os.environ.get("ROBUST_TOKENS_TYPE", None) is not None
         self.robust_tokens_type = os.environ.get("ROBUST_TOKENS_TYPE", None)
         assert self.robust_tokens_type in ["dynamic", "global", "none"]
@@ -823,14 +824,30 @@ class LL2S(Attack):
         v_rest = {}
 
         if self.robust_tokens_type == "global":
-            tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
-            robust_tokens = (
-                torch.load(tensor_filepath)
-                .to(self.device)
-                .unsqueeze(0)
-                .repeat([data.shape[0], 1, 1])
-                .clone()
-            )
+            if "vit" in self._model_name_:
+                tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/attack_image_robust_riter1_img50000_ensemble_400_tokens.pt"
+                robust_tokens = (
+                    torch.load(tensor_filepath)
+                    .to(self.device)
+                    .unsqueeze(0)
+                    .repeat([data.shape[0], 1, 1])
+                    .clone()
+                )
+            elif "pit" in self._model_name_:
+                tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/pit_b_224_dynamic_rand_init_1_img50000_ensemble_4000_new.pt"
+                raw_robust_tokens = (
+                    torch.load(tensor_filepath)
+                    .to(self.device)
+                    .unsqueeze(0)
+                    .repeat([data.shape[0], 1, 1, 1])
+                    .clone()
+                )
+                robust_tokens = pit_sample_global_robust_tokens(
+                    raw_robust_tokens, self.margin_size, random_sample=False
+                )
+                print(raw_robust_tokens.shape)
+            else:
+                raise ValueError("Unsupported model for global robust tokens")
         elif self.robust_tokens_type == "dynamic":
             momentum_robust = 0.0
             robust_tokens = self.init_robust_delta(len(data)).to(self.device)
@@ -920,4 +937,22 @@ class LL2S(Attack):
 
         # print(softmax(aug_param))
         # print(aug_param)
+        # del aug_param
+        torch.cuda.empty_cache()
         return delta.detach()
+
+
+def pit_sample_global_robust_tokens(
+    raw_robust_tokens: torch.Tensor, margin_size: int, random_sample=False
+):
+    ori_margin_size = raw_robust_tokens.shape[-1]
+    origin_len = raw_robust_tokens.shape[-2]
+    res = []
+    for i in range(len(raw_robust_tokens)):
+        longitude = torch.randperm(ori_margin_size)[:margin_size]
+        r = raw_robust_tokens[i, :, :, longitude]
+        latitude = torch.randperm(origin_len)[: 31 * 2 + margin_size]
+        r = r[:, latitude, :]
+        res.append(r.clone().unsqueeze(0))
+    xx = torch.cat(res, dim=0)
+    return xx

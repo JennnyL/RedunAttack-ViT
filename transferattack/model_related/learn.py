@@ -235,9 +235,7 @@ class LearnAttack(Attack):
             # tensor_filepath = f"./data/attack_image_robust_riter1_img50000_ensemble_{self.num_tokens}_tokens_all.pt"
             # tensor_filepath = "./data/new_dymaic_attack_image_robust_riter1_img1000_ensemble_400/aa_merged.pt"
             # tensor_filepath = f"./data/zero_momentum_riter{1}_img{50000}_ensemble_{self.num_tokens}_new.pt"
-            tensor_filepath = (
-                "./data/pit_b_224_dynamic_zeros_init_1_img1000_ensemble_400_new.pt"
-            )
+            tensor_filepath = "/home/cxu-serve/p62/zwang236/ViT_Robustness/data/pit_b_224_dynamic_rand_init_1_img50000_ensemble_4000_new.pt"
             print(f"successfully loaded {tensor_filepath}")
             if "vit" in self._model_name_:
                 robust_tokens = (

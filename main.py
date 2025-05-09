@@ -7,6 +7,30 @@ import transferattack
 from transferattack.utils import *
 
 
+def check_mem():
+    import gc
+    import torch
+
+    # 遍历所有对象，筛选出在cuda上的Tensor
+    gpu_tensors = []
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) and obj.is_cuda:
+                gpu_tensors.append(obj)
+        except Exception:
+            pass  # 有些对象可能会出异常，忽略掉
+
+    print(f"当前GPU上共有 {len(gpu_tensors)} 个Tensor。")
+    for t in gpu_tensors:
+        # if t.element_size() * t.numel() / 1024 > 1000:
+        print(
+            f"Shape: {t.shape}, dtype: {t.dtype}, size: {t.numel()}, memory: {t.element_size() * t.numel() / 1024:.2f} KB"
+        )
+    print("-------------------------------------------------------")
+    print("-------------------------------------------------------")
+    print("-------------------------------------------------------")
+
+
 def get_parser():
     parser = argparse.ArgumentParser(
         description="Generating transferable adversaria examples"
@@ -122,6 +146,8 @@ def main():
                         os.makedirs(new_output_dir)
                     save_images(new_output_dir, images + perturbations.cpu(), filenames)
             else:
+
+                check_mem()
                 if args.attack == "learn":
                     perturbations = attacker(
                         images,
