@@ -1090,21 +1090,31 @@ def eval_llm(llm_func, dataloader, max_option_num=1000):
     correct, total = 0, 0
     others = None
 
-    option_list_list = split_list_4fold(list(label_name_label_map.values()))
-
     for _, label, image_name in dataloader:
+        ll = list(label_name_label_map.values())
+        random.shuffle(ll)
+        option_list_list = split_list_4fold(ll)
         assert len(image_name) == 1, "The batch_size must be 1 for llm evaluation."
         label_id = label.cpu().item()
-        all_options_id = random.sample(range(1000), max_option_num)
-        if label_id not in all_options_id:
-            all_options_id = all_options_id[:-1] + [label_id]
-        random.shuffle(all_options_id)
-        all_options = [label_name_label_map[l_id] for l_id in all_options_id]
-        prompt = f"Examine the image carefully and choose the closest matching label from the following options: {all_options}. Return only the selected label, with no explanation."
+        resp_list = []
 
+        for opt_l in option_list_list:
+            prompt = f"Examine the image carefully and choose the closest matching label from the following options: {opt_l}. Return only the selected label, with no explanation."
+            resp, others = llm_func(
+                prompt, os.path.join(folder_path, image_name[0]), others
+            )
+            resp_list.append(resp.lower().strip(" '\""))
+            # print(prompt)
+            # print(resp)
+            # print()
+
+        prompt = f"Examine the image carefully and choose the closest matching label from the following options: {resp_list}. Return only the selected label, with no explanation."
         resp, others = llm_func(
             prompt, os.path.join(folder_path, image_name[0]), others
         )
+        # print(prompt)
+        # print(resp)
+
         correct += grade_resp(resp, label_name_label_map[label_id])
         total += label.shape[0]
         print(f"{total-correct}/{total}")
