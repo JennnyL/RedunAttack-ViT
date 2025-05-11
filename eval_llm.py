@@ -3,8 +3,32 @@ import torch
 import random
 import argparse
 from transferattack.utils import AdvDataset
-from llava.mm_utils import get_model_name_from_path
-from llava.eval.run_llava import eval_model
+
+try:  # llava
+    from llava.mm_utils import get_model_name_from_path
+    from llava.eval.run_llava import eval_model
+except:
+    pass
+try:  # qwen
+    from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+    from qwen_vl_utils import process_vision_info
+except:
+    pass
+from transformers import AutoModel, AutoTokenizer
+
+try:  # internvl
+    from internvl_utils import load_image
+except:
+    pass
+
+try:  # deepseek-vl
+    from transformers import AutoModelForCausalLM
+
+    from deepseek_vl.models import VLChatProcessor, MultiModalityCausalLM
+    from deepseek_vl.utils.io import load_pil_images
+except:
+    pass
+
 import random
 import numpy as np
 import torch
@@ -1079,9 +1103,158 @@ def eval_llava(prompt, image_file: str, others=None):
     return eval_model(args)
 
 
-def grade_resp(resp, label):
+def eval_qwen(prompt, image_file: str, others=None):
+    if others is None:
+        # default: Load the model on the available device(s)
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            "Qwen/Qwen2.5-VL-7B-Instruct", torch_dtype="auto", device_map="auto"
+        )
+
+        # We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
+        # model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        #     "Qwen/Qwen2.5-VL-7B-Instruct",
+        #     torch_dtype=torch.bfloat16,
+        #     attn_implementation="flash_attention_2",
+        #     device_map="auto",
+        # )
+
+        # default processor
+        processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+
+        # The default range for the number of visual tokens per image in the model is 4-16384.
+        # You can set min_pixels and max_pixels according to your needs, such as a token range of 256-1280, to balance performance and cost.
+        # min_pixels = 256*28*28
+        # max_pixels = 1280*28*28
+        # processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct", min_pixels=min_pixels, max_pixels=max_pixels)
+        others = (model, processor)
+    else:
+        model, processor = others
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "image": image_file,
+                },
+                {"type": "text", "text": prompt},
+            ],
+        }
+    ]
+
+    # Preparation for inference
+    text = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    image_inputs, video_inputs = process_vision_info(messages)
+    inputs = processor(
+        text=[text],
+        images=image_inputs,
+        videos=video_inputs,
+        padding=True,
+        return_tensors="pt",
+    )
+    inputs = inputs.to(model.device)
+
+    # Inference: Generation of the output
+    generated_ids = model.generate(**inputs, max_new_tokens=128)
+    generated_ids_trimmed = [
+        out_ids[len(in_ids) :]
+        for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    ]
+    output_text = processor.batch_decode(
+        generated_ids_trimmed,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    )
+    return output_text[0], others
+
+
+def eval_internvl(prompt, image_file: str, others=None):
+    # If you have an 80G A100 GPU, you can put the entire model on a single GPU.
+    # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
+    if others is None:
+        path = "OpenGVLab/InternVL2_5-8B"
+        model = (
+            AutoModel.from_pretrained(
+                path,
+                # torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
+            .eval()
+            .cuda()
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            path, trust_remote_code=True, use_fast=False
+        )
+        others = (model, tokenizer)
+    else:
+        model, tokenizer = others
+
+    # set the max number of tiles in `max_num`
+    pixel_values = load_image(image_file, max_num=12).cuda()
+    generation_config = dict(max_new_tokens=1024, do_sample=False)
+    response = model.chat(tokenizer, pixel_values, prompt, generation_config)
+    return response, others
+
+
+def eval_deepseek_vl(prompt, image_file: str, others):
+    if others is None:
+        model_path = "deepseek-ai/deepseek-vl-7b-chat"
+        vl_chat_processor: VLChatProcessor = VLChatProcessor.from_pretrained(model_path)
+        tokenizer = vl_chat_processor.tokenizer
+
+        vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
+            model_path, trust_remote_code=True
+        )
+        vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
+        others = (vl_gpt, vl_chat_processor, tokenizer)
+    else:
+        vl_gpt, vl_chat_processor, tokenizer = others
+    conversation = [
+        {
+            "role": "User",
+            "content": "<image_placeholder>" + prompt,
+            "images": [
+                image_file,
+            ],
+        },
+        {"role": "Assistant", "content": ""},
+    ]
+
+    # load images and prepare for inputs
+    pil_images = load_pil_images(conversation)
+    prepare_inputs = vl_chat_processor(
+        conversations=conversation, images=pil_images, force_batchify=True
+    ).to(vl_gpt.device)
+
+    # run image encoder to get the image embeddings
+    inputs_embeds = vl_gpt.prepare_inputs_embeds(**prepare_inputs)
+
+    # run the model to get the response
+    outputs = vl_gpt.language_model.generate(
+        inputs_embeds=inputs_embeds,
+        attention_mask=prepare_inputs.attention_mask,
+        pad_token_id=tokenizer.eos_token_id,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        max_new_tokens=512,
+        do_sample=False,
+        use_cache=True,
+    )
+
+    answer = tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=True)
+    return answer, others
+
+
+def grade_resp(resp, label, opts):
     if label.lower() == resp.lower().strip(" '\""):
-        return 1
+        for opt in opts:
+            # make sure it's selected from opts, instead of generating correct ans from scratch
+            if label.lower() == opt.lower():
+                return 1
     return 0
 
 
@@ -1099,7 +1272,8 @@ def eval_llm(llm_func, dataloader, max_option_num=1000):
         resp_list = []
 
         for opt_l in option_list_list:
-            prompt = f"Examine the image carefully and choose the closest matching label from the following options: {opt_l}. Return only the selected label, with no explanation."
+            opt_l_str = ", ".join(opt_l)
+            prompt = f"Examine the image carefully and choose the closest matching label from the following options: [{opt_l_str}]. Return only the selected label, with no explanation."
             resp, others = llm_func(
                 prompt, os.path.join(folder_path, image_name[0]), others
             )
@@ -1108,14 +1282,14 @@ def eval_llm(llm_func, dataloader, max_option_num=1000):
             # print(resp)
             # print()
 
-        prompt = f"Examine the image carefully and choose the closest matching label from the following options: {resp_list}. Return only the selected label, with no explanation."
+        prompt = f"Examine the image carefully and choose the closest matching label from the following options: [{', '.join(resp_list)}]. Return only the selected label, with no explanation."
         resp, others = llm_func(
             prompt, os.path.join(folder_path, image_name[0]), others
         )
         # print(prompt)
         # print(resp)
 
-        correct += grade_resp(resp, label_name_label_map[label_id])
+        correct += grade_resp(resp, label_name_label_map[label_id], resp_list)
         total += label.shape[0]
         print(f"{total-correct}/{total}")
 
@@ -1128,8 +1302,9 @@ def main():
     args = get_parser()
     llm_func_map = {
         "llava": eval_llava,
-        # "qwen": eval_qwen,
-        # "internvl": eval_internvl,
+        "qwen": eval_qwen,
+        "internvl": eval_internvl,
+        "deepseek_vl": eval_deepseek_vl,
     }
     max_option_num = 1000
     if args.eval_model == "llava":
