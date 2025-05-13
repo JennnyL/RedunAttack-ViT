@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import List, Optional, Tuple, Union
 
 import torch
-from torch import Tensor
 
 from timm.models.vision_transformer import Attention
 import torch
@@ -24,6 +23,10 @@ from ..attack import Attack
 
 
 attn_weights = []
+# skip_sparsity_flag =
+sparsity_list = []
+sparsity_pack = []
+layer_idx_list = []
 
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -46,7 +49,44 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
 
     assert os.environ.get("ATTN_DROP_RATE", None) is not None
     attn_drop_rate = float(os.environ.get("ATTN_DROP_RATE", None))
-    # print(f'ATTN_DROP_RATE: {float(os.environ.get("ATTN_DROP_RATE", None))}')
+
+    assert os.environ.get("DYNAMIC_SPARSITY_FLAG", None) is not None
+    dynamic_sparsity_flag = int(os.environ.get("DYNAMIC_SPARSITY_FLAG", None))
+
+    global layer_idx_list
+    layer_idx = len(layer_idx_list)
+    layer_idx_list.append(1)
+    if dynamic_sparsity_flag and len(sparsity_list) == 0:
+        assert attn.shape[0] == 1
+
+        pp = 0.05
+        sparsity_threshold = (pp * attn.max(-1)[0]).unsqueeze(-1)
+
+        dense_token_map = (  # (BS, heads, post-vision tokens(including dropped), k-tokens)
+            attn >= sparsity_threshold
+        )
+        dense_token_num = (dense_token_map).sum(dim=(-1, -2))  # (BS, heads)
+        sparsity_valid_token_num = attn.shape[-1] * attn.shape[-2]
+        sparsity = (
+            ((sparsity_valid_token_num - dense_token_num) / sparsity_valid_token_num)
+            .mean()
+            .cpu()
+            .item()
+        )
+        global sparsity_pack
+        sparsity_pack.append(sparsity)
+
+    if len(sparsity_list) != 0:
+        attn_drop_rate_total = attn_drop_rate * 12  # 12 layers
+        layer_weights = torch.tensor(sparsity_list[0])
+        layer_weights = layer_weights / layer_weights.sum()
+        attn_drop_rate = layer_weights[layer_idx] * attn_drop_rate_total
+
+        if len(sparsity_list) > 0:
+            print(f"last weights: {sparsity_list[-1]}")
+        print(
+            f"epoch: {len(sparsity_list)}, layer: {layer_idx}, drop_ratio: {attn_drop_rate}"
+        )
 
     attn = attn * (torch.rand_like(attn) > attn_drop_rate).float()
     x = attn @ v
@@ -114,33 +154,48 @@ class SparseAttack(Attack):
         data = data.clone().detach().to(self.device)
         label = label.clone().detach().to(self.device)
 
+        global sparsity_list
+        global sparsity_pack
+        global layer_idx_list
+
+        sparsity_list = []
+        sparsity_pack = []
         with torch.no_grad():
             logits = self.get_logits(data)
-            global attn_weights
-            attn_weights_benign = attn_weights
-            attn_weights = []
+            sparsity_list.append(sparsity_pack)
+            # global attn_weights
+            # attn_weights_benign = attn_weights
+            # attn_weights = []
 
         # import pdb;pdb.set_trace()
 
+        # sparsity_list = []
         momentum = 0.0
         delta = self.init_delta(data).to(self.device)
         for _ in range(self.epoch):
+            layer_idx_list = []
+            # sparsity_pack = []
             # Obtain the output
             logits = self.get_logits(self.transform(data + delta, momentum=momentum))
+
             # Calculate the loss
-
-            # global attn_weights
-            # attn_weights_adv = attn_weights
-            # attn_weights = []
-
-            # import pdb;pdb.set_trace()
-            loss = self.get_loss(logits, label, attn_weights_benign)
+            loss = self.get_loss(logits, label)
             # Calculate the gradients
             grad = self.get_grad(loss, delta)
             # Calculate the momentum
             momentum = self.get_momentum(grad, momentum)
             # Update adversarial perturbation
             delta = self.update_delta(delta, data, momentum, self.alpha)
+
+            # sparsity_list.append(sparsity_pack)
+
+        assert os.environ.get("ATTN_DROP_RATE", None) is not None
+        attn_drop_rate = float(os.environ.get("ATTN_DROP_RATE", None))
+
+        # with open(f"{attn_drop_rate}_sparsity_list.txt", "a") as fl:
+        # fl.write(f"{sparsity_list}\n")
+        sparsity_list = []
+        sparsity_pack = []
 
         return delta.detach()
 
