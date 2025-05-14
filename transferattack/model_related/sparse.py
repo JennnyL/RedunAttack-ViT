@@ -26,7 +26,7 @@ attn_weights = []
 # skip_sparsity_flag =
 sparsity_list = []
 sparsity_pack = []
-layer_idx_list = []
+drop_rate_scale = 1
 
 
 def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -52,15 +52,15 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
 
     assert os.environ.get("DYNAMIC_SPARSITY_FLAG", None) is not None
     dynamic_sparsity_flag = int(os.environ.get("DYNAMIC_SPARSITY_FLAG", None))
-
-    global layer_idx_list
-    layer_idx = len(layer_idx_list)
-    layer_idx_list.append(1)
-    if dynamic_sparsity_flag and len(sparsity_list) == 0:
+    if dynamic_sparsity_flag:
         assert attn.shape[0] == 1
 
-        pp = 0.05
-        sparsity_threshold = (pp * attn.max(-1)[0]).unsqueeze(-1)
+        pp = 0.01
+        # sparsity_threshold = (
+        #     (pp * (attn.max(-1)[0]).max(-1)[0]).unsqueeze(-1).unsqueeze(-1)
+        # )
+
+        sparsity_threshold = pp * torch.mean(attn, dim=[-1, -2], keepdim=True)
 
         dense_token_map = (  # (BS, heads, post-vision tokens(including dropped), k-tokens)
             attn >= sparsity_threshold
@@ -76,19 +76,26 @@ def Wrapped_Attention_forward(self, x: torch.Tensor) -> torch.Tensor:
         global sparsity_pack
         sparsity_pack.append(sparsity)
 
-    if len(sparsity_list) != 0:
         attn_drop_rate_total = attn_drop_rate * 12  # 12 layers
-        layer_weights = torch.tensor(sparsity_list[0])
-        layer_weights = layer_weights / layer_weights.sum()
-        attn_drop_rate = layer_weights[layer_idx] * attn_drop_rate_total
+        if len(sparsity_list) != 0:
+            layer_weights = ((torch.tensor(sparsity_list[-1])) * 1).exp()
+            layer_weights = layer_weights / layer_weights.sum()
+            # layer_weights = torch.clip(layer_weights, 0.01, 1)
+            layer_idx = len(sparsity_pack) - 1
+            attn_drop_rate = layer_weights[layer_idx] * attn_drop_rate_total
+            attn_drop_rate = torch.clip(attn_drop_rate, 0.01, 0.9)
 
-        if len(sparsity_list) > 0:
-            print(f"last weights: {sparsity_list[-1]}")
+        # if len(sparsity_list) > 0:
+        #     print(f"last weights: {sparsity_list[-1]}")
         print(
-            f"epoch: {len(sparsity_list)}, layer: {layer_idx}, drop_ratio: {attn_drop_rate}"
+            f"epoch: {len(sparsity_list)}, layer: {len(sparsity_pack)-1}, drop_ratio: {attn_drop_rate}"
         )
 
+    global drop_rate_scale
+    attn_drop_rate *= drop_rate_scale
+    # print(f"drop_rate: {attn_drop_rate}")
     attn = attn * (torch.rand_like(attn) > attn_drop_rate).float()
+    # print(attn.mean())
     x = attn @ v
     x = x.transpose(1, 2).reshape(B, N, C)
     x = self.proj(x)
@@ -156,25 +163,13 @@ class SparseAttack(Attack):
 
         global sparsity_list
         global sparsity_pack
-        global layer_idx_list
-
+        global drop_rate_scale
+        drop_rate_scale = 1
         sparsity_list = []
-        sparsity_pack = []
-        with torch.no_grad():
-            logits = self.get_logits(data)
-            sparsity_list.append(sparsity_pack)
-            # global attn_weights
-            # attn_weights_benign = attn_weights
-            # attn_weights = []
-
-        # import pdb;pdb.set_trace()
-
-        # sparsity_list = []
         momentum = 0.0
         delta = self.init_delta(data).to(self.device)
         for _ in range(self.epoch):
-            layer_idx_list = []
-            # sparsity_pack = []
+            sparsity_pack = []
             # Obtain the output
             logits = self.get_logits(self.transform(data + delta, momentum=momentum))
 
@@ -188,12 +183,10 @@ class SparseAttack(Attack):
             delta = self.update_delta(delta, data, momentum, self.alpha)
 
             # sparsity_list.append(sparsity_pack)
-
-        assert os.environ.get("ATTN_DROP_RATE", None) is not None
-        attn_drop_rate = float(os.environ.get("ATTN_DROP_RATE", None))
+            drop_rate_scale *= 1.02
 
         # with open(f"{attn_drop_rate}_sparsity_list.txt", "a") as fl:
-        # fl.write(f"{sparsity_list}\n")
+        #     fl.write(f"{sparsity_list}\n")
         sparsity_list = []
         sparsity_pack = []
 

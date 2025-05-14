@@ -1,11 +1,11 @@
 model_name=vit_base_patch16_224
 # model_name=pit_b_224
 
-for v in 0.4 # 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9
+for v in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9
 do
-    DYNAMIC_SPARSITY_FLAG=1 ATTN_DROP_RATE=$v python main.py --input_dir /home/cxu-serve/p62/zzh136/global_prune/attack/data/TransferAttack/data  --output_dir adv_data --attack sparse --model $model_name --batchsize 1
+    DYNAMIC_SPARSITY_FLAG=0 ATTN_DROP_RATE=$v python main.py --input_dir /home/cxu-serve/p62/zzh136/global_prune/attack/data/TransferAttack/data  --output_dir adv_data --attack sparse --model $model_name --batchsize 1
     echo "" >> exp_results/vit_sparse_explore.log
-    echo 'dry_run first attn_drop_rate:' >> exp_results/vit_sparse_explore.log
+    echo 'scaling 0.95 attn_drop_rate:' >> exp_results/vit_sparse_explore.log
     echo $v >> exp_results/vit_sparse_explore.log
     python main.py --input_dir /home/cxu-serve/p62/zzh136/global_prune/attack/data/TransferAttack/data  --output_dir adv_data --attack sparse --model $model_name --batchsize 16 --eval >> exp_results/vit_sparse_explore.log
 done
