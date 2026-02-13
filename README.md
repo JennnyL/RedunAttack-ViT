@@ -83,7 +83,7 @@ python main.py --input_dir ./path/to/data --output_dir adv_data/mifgsm/resnet18 
 - Type: `ROBUST_TOKENS_TYPE ∈ {dynamic, global, none}`
 - Token count: `NUM_ROBUST_TOKENS`
 
-####Token injection
+#### Token injection
 - ViT: `wrap_forward_features`
 - PiT: `wrap_forward_PiT_features`
 - Swin: `wrap_forward_swin_features`
