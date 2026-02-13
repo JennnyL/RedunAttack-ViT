@@ -53,6 +53,42 @@ python main.py --input_dir ./path/to/data --output_dir adv_data/mifgsm/resnet18 
 
 ## Attacks and Models
 
+## Method Overview
+
+
+## METHOD -> CODE MAPPING:
+
+### 1. Attention Sparsity Manipulation:
+- ViT/PiT: `Wrapped_Attention_forward_Sparse_Attack`
+- Swin: `Wrapped_WindowAttention_forward_Sparse_Attack` 
+
+### 2. Attention Head Permutation:
+- ViT/PiT: `Wrapped_Attention_forward_Shuffle_Attack`
+- Swin: `Wrapped_WindowAttention_forward_Shuffle_Attack`
+
+### 3. Clean Token Regularization:
+- ViT/PiT: `Wrapped_Attention_forward_REST_Attack`
+- Swin: `Wrapped_WindowAttention_forward_REST_Attack`
+
+### 4. Ghost MoE:
+- ViT/PiT: `Wrapper_FFN_forward_MoE_Attack`
+- Swin: `Wrapper_SwinFFN_forward_MoE_Attack`
+
+### 5. Test-time Adversarial Training:
+LL2S.forward()
+pit_sample_global_robust_tokens()
+
+### 6. Operation Pool (Online Learning Strategy):
+LL2S.forward()
+select_op(op_params, num_ops)
+trace_prob(op_params, op_ids)
+
+- Operation Pool:
+ViT: op_list
+GiT: pit_list
+Swin: swin_list
+
+
 ### Untargeted Attacks
 
 <table  style="width:100%" border="1">
