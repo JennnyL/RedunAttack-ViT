@@ -71,8 +71,15 @@ python main.py --input_dir ./path/to/data --output_dir adv_data/mifgsm/resnet18 
 - Swin: `Wrapper_SwinFFN_forward_MoE_Attack`
 
 ### 5. Test-time Adversarial Training:
-`LL2S.forward()`
-`pit_sample_global_robust_tokens()`
+- Initialization: `init_robust_delta`
+- Update: `update_robust_delta`
+- Momentum: `get_robust_momentum`
+- Type: `ROBUST_TOKENS_TYPE ∈ {dynamic, global, none}`
+- Token count: `NUM_ROBUST_TOKENS`
+
+- Token injection (ViT): `wrap_forward_features`
+- Token injection (Swin): `wrap_forward_swin_features`
+- Token injection (PiT): `wrap_forward_PiT_features`
 
 ### 6. Operation Pool (Online Learning Strategy):
 `LL2S.forward()`
