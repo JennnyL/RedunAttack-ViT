@@ -51,45 +51,63 @@ python main.py --input_dir ./path/to/data --output_dir adv_data/mifgsm/resnet18 
 python main.py --input_dir ./path/to/data --output_dir adv_data/mifgsm/resnet18 --eval
 ```
 
-## Attacks and Models
-
 ## Method Overview
 ### 1. Attention Sparsity Manipulation:
+Randomly sparsifies attention weights to diversify gradient directions.
+
 - ViT/PiT: `Wrapped_Attention_forward_Sparse_Attack`
 - Swin: `Wrapped_WindowAttention_forward_Sparse_Attack` 
 
 ### 2. Attention Head Permutation:
+Randomly permutates attention weights across heads to disrupt head-specific patterns.
+
 - ViT/PiT: `Wrapped_Attention_forward_Shuffle_Attack`
 - Swin: `Wrapped_WindowAttention_forward_Shuffle_Attack`
 
 ### 3. Clean Token Regularization:
+Appends clean tokens during forward process to prevent overfitting to surrogate gradients.
+
 - ViT/PiT: `Wrapped_Attention_forward_REST_Attack`
 - Swin: `Wrapped_WindowAttention_forward_REST_Attack`
 
 ### 4. Ghost MoE:
+Runs the FFN multiple times with different dropout masks and averages the results to increase feature representation diversity.
+
 - ViT/PiT: `Wrapper_FFN_forward_MoE_Attack`
 - Swin: `Wrapper_SwinFFN_forward_MoE_Attack`
 
-### 5. Test-time Adversarial Training:
+### 5. Robustification Token:
+Robust tokens are additional learnable tokens inserted into the input sequence to stabilize feature representations, they can be either pre-trained (global) or updated at test time (dynamic).
+
+#### Global Robust Tokens (Pre-trained):
+- Mode control: `ROBUST_TOKENS_TYPE=global`
+- Loading inside `LL2S.forward()`
+
+#### Dynamic Robust Tokens (Test-time):
+- Mode control: `ROBUST_TOKENS_TYPE=dynamic`
 - Initialization: `init_robust_delta`
 - Update: `update_robust_delta`
 - Momentum: `get_robust_momentum`
-- Type: `ROBUST_TOKENS_TYPE ∈ {dynamic, global, none}`
 - Token count: `NUM_ROBUST_TOKENS`
 
-- Token injection (ViT): `wrap_forward_features`
-- Token injection (Swin): `wrap_forward_swin_features`
-- Token injection (PiT): `wrap_forward_PiT_features`
+#### Token injection
+- ViT: `wrap_forward_features`
+- PiT: `wrap_forward_PiT_features`
+- Swin: `wrap_forward_swin_features`
 
 ### 6. Operation Pool (Online Learning Strategy):
-`LL2S.forward()`
-`select_op(op_params, num_ops)`
-`trace_prob(op_params, op_ids)`
+The online learning strategy dynamically selects operations and adapts redundant operations across transformer layers during attack optimization.
 
-- Operation Pool:
-ViT: `op_list`
-GiT: `pit_list`
-Swin: `swin_list`
+#### Operation Pool Definition:
+- ViT: `op_list`
+- PiT: `pit_list`
+- Swin: `swin_list`
+
+#### Operation selection is handled by:
+- `select_op`
+- `trace_prob`
+- `aug_param`
+
 
 
 ### Untargeted Attacks
